@@ -1,0 +1,20 @@
+[Unit]
+Description=one-armed-cake dashboard (Bun)
+After=network-online.target router-shaper.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Optional: UDP echo reflector for the game-style latency probe (echo/).
+# Without it the dashboard falls back to TCP handshakes to 1.1.1.1:443.
+Environment=NETMON_ECHO_HOST=
+#Environment=NETMON_PORT=80
+#Environment=NETMON_ROUTER_IP=192.168.1.2
+ExecStart=/usr/local/bin/bun /opt/netmon/server.ts
+WorkingDirectory=/opt/netmon
+Restart=always
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target

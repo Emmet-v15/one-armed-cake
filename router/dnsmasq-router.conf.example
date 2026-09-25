@@ -1,0 +1,28 @@
+# /etc/dnsmasq.d/router.conf -- one-armed router: DHCP + DNS.
+# Turn OFF the ISP router's DHCP server first, or the two will race and some
+# clients will keep the ISP router as their gateway, bypassing the shaper.
+interface=eth0
+interface=lo
+bind-interfaces
+
+# --- DNS ---
+domain-needed
+bogus-priv
+no-resolv
+server=192.168.1.1
+server=1.1.1.1
+cache-size=1000
+local-service
+
+# --- DHCP ---
+# Pool leaves .1-.19 free for statics (.1 Hub, .2 Pi)
+dhcp-range=192.168.1.20,192.168.1.250,1h
+# THE KEY: hand every client the Pi as its default gateway
+dhcp-option=option:router,192.168.1.2
+dhcp-option=option:dns-server,192.168.1.2
+dhcp-authoritative
+log-dhcp
+
+# --- reservations (example) ---
+# Pin a host if you use FAIRNESS=priority, so PRIORITY_HOST stays valid.
+#dhcp-host=00:00:5e:00:53:01,192.168.1.100,desktop,infinite

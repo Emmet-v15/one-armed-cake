@@ -1,0 +1,17 @@
+[Unit]
+Description=UDP echo reflector for the one-armed-cake latency probe
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/bin/echo-server.py
+DynamicUser=yes
+Restart=always
+RestartSec=2
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+MemoryMax=64M
+
+[Install]
+WantedBy=multi-user.target

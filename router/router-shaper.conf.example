@@ -1,0 +1,62 @@
+# /etc/router-shaper.conf -- configuration for router-shaper.
+# Sourced by bash: KEY=value, no spaces around "=". See docs/configuration.md.
+
+# ---------------------------------------------------------------- profile ----
+# Switch live with `router-shaper profile {gaming|max}` or from the dashboard.
+# Switching changes the rate on the running qdiscs; it does not rebuild them.
+#
+#   gaming  Cap download at DL_RATE, below line capacity, so the queue forms in
+#           CAKE (kept short) instead of in the ISP's DSLAM buffer.
+#   max     No download cap. Highest throughput; under download load the queue
+#           sits upstream at the DSLAM, where nothing on this box can reach it.
+#
+# Measured (paper, Table 3): 4-stream download, game-style UDP probe, steady
+# state: max 161-174 ms median / 4.3 Mbps; gaming 18-19 ms median / 2.8-3.0 Mbps.
+PROFILE=gaming
+
+# In max, also lift the upload cap? Unshaping upload gains little (the cap sits
+# ~10% under the upstream sync rate) and upload saturation is what produces the
+# worst bufferbloat on asymmetric lines. Leave "no" unless you have measured.
+MAX_UNSHAPE_UPLOAD=no
+
+# ------------------------------------------------------------------ rates ----
+# DL_RATE applies in gaming only; UL_RATE in both profiles.
+# Find DL_RATE by sweeping (tools/exp.py download): pick the highest cap whose
+# p99 stays flat, then back off ~10% because DSL capacity drifts.
+DL_RATE=4500kbit
+UL_RATE=1800kbit
+
+# CAKE's rtt parameter (sets CoDel's interval). GAMING_RTT applies to download
+# in gaming only: a shorter interval reacts to a ramping flow sooner.
+RTT=100ms
+GAMING_RTT=30ms
+
+# ---------------------------------------------------------------- framing ----
+# VDSL2 uses PTM framing, not ATM. Adjust for your link type.
+OVERHEAD="overhead 34 mpu 68 ptm"
+
+# Thin the upstream ACK flood on asymmetric links (upload qdisc only).
+ACK=yes
+
+# ------------------------------------------------------------ interfaces ----
+WAN_IF=eth0
+LAN_SUBNET=192.168.1.0/24
+
+# ------------------------------------------------------------ fairness ------
+#   fair      Equal share per host, then fair among each host's flows.
+#   priority  PRIORITY_HOST stays Best Effort; all other traffic is marked CS1
+#             into CAKE's Bulk tin. Measured strictly worse, including for the
+#             favoured host (Bulk's long AQM target inflates the shared queue).
+#             Kept only for comparison.
+FAIRNESS=fair
+PRIORITY_HOST=192.168.1.100
+
+# ---------------------------------------------------------- game priority ----
+# Mark small UDP packets EF so CAKE serves them from the Voice tin:
+#   upload:   UDP <= 300 bytes
+#   download: UDP <= 1000 bytes, excluding source port 443 (QUIC)
+# Fair queueing alone does not protect a game flow while many bulk flows are
+# starting at once (each is "new" too). Paper, Table 1: 16 simultaneous uploads,
+# worst probe 97-132 ms with loss unmarked; 22-40 ms and zero loss marked.
+# CAKE caps Voice at 25% of the link, so a false match only loses priority.
+GAME_PRIORITY=yes

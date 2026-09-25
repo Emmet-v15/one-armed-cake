@@ -1,0 +1,184 @@
+#!/bin/bash
+# One-armed CAKE shaper for a VDSL2 (PTM) line behind an ISP router.
+# Shaping runs on eth0 EGRESS (post-NAT) so the real LAN host is visible in
+# both directions - the ingress hook cannot do this, because inbound packets
+# are still addressed to the router before NAT is reversed.
+set -e
+export PATH=/usr/sbin:/sbin:/usr/bin:/bin
+CONF=/etc/router-shaper.conf
+. $CONF
+TC=/usr/sbin/tc
+IP=/usr/sbin/ip
+NFT=/usr/sbin/nft
+
+AF=""; [ "$ACK" = "yes" ] && AF="ack-filter"
+
+# PROFILE=max removes the rate cap entirely, using cake's bare `unlimited`
+# keyword -- NOT `bandwidth unlimited`, which tc rejects as "Illegal bandwidth".
+# CAKE still does flow isolation and AQM, so the dashboard graphs and per-device
+# accounting keep working; it just stops being the bottleneck.
+#
+# Measured 2026-09-24 on this line: 5.12 Mbps delivered unlimited, 4.91 capped at
+# 5300, 3.78 with cake-autorate driving the rate. The tradeoff is real: with no
+# cap the queue moves back to the DSLAM, so under sustained contention
+# bufferbloat returns. That is the explicit point of this profile.
+rates() {
+RTT_DL=$RTT
+if [ "$PROFILE" = "max" ]; then
+    RATE_DL="unlimited"
+    # Upload stays shaped by default even in max, because the two directions are
+    # not symmetric here:
+    #   - unshaping DOWNLOAD is where the throughput is: 5.06 vs 3.78 Mbps (+34%)
+    #   - unshaping UPLOAD can win at most ~0.2 Mbps (sync is 2000 kbps, cap is
+    #     1800) while upload saturation is what produced the original +433 ms
+    #     bufferbloat this whole box exists to fix.
+    # So it is nearly free to keep. Set MAX_UNSHAPE_UPLOAD=yes to lift it too.
+    if [ "$MAX_UNSHAPE_UPLOAD" = "yes" ]; then
+        RATE_UL="unlimited"
+    else
+        RATE_UL="bandwidth $UL_RATE"
+    fi
+else
+    # gaming (or the old name "shaped"): cap below line capacity so the queue
+    # lives in CAKE, where it is kept short, instead of at the DSLAM.
+    RATE_DL="bandwidth $DL_RATE"
+    RATE_UL="bandwidth $UL_RATE"
+    # A shorter rtt makes CoDel react to a ramping flow sooner. On download it
+    # cut the worst-case spike from ~50 ms to ~45 ms at no throughput cost.
+    RTT_DL=${GAMING_RTT:-$RTT}
+fi
+}
+rates
+
+# The priority/fair choice lives in nftables, not in tc: the DSCP mark has to be
+# applied in FORWARD where the real LAN host is visible in both directions.
+# router-shaper owns this chain's contents and rewrites it on every start, so it
+# stays authoritative over whatever /etc/nftables.conf installed at boot.
+apply_fairness() {
+    # At boot this can run before nftables.service has loaded the ruleset, so
+    # create the table/chain if they are missing rather than silently doing
+    # nothing and leaving the link with no policy at all.
+    if ! $NFT list chain ip mangle forward >/dev/null 2>&1; then
+        $NFT add table ip mangle 2>/dev/null || true
+        $NFT add chain ip mangle forward '{ type filter hook forward priority mangle; policy accept; }' 2>/dev/null || true
+    fi
+    $NFT flush chain ip mangle forward 2>/dev/null || true
+    # Game-like packets go to CAKE's Voice tin. Fair queueing alone protects a
+    # sparse flow only while the bulk flows are established: when many uploads
+    # start at once, every one of them is also "new", and a game packet takes
+    # turns with all of them. Measured 2026-09-24, 16 uploads starting together,
+    # 50 Hz UDP probe: 92 ms spikes and 19 lost packets, all inside CAKE's upload
+    # queue (the Hub and line stayed flat at 15.6 ms). Marked EF: 24 ms max, 0 lost.
+    # Small UDP only, so TCP bulk and QUIC data never match; Voice is capped at
+    # 25% of the link by CAKE, so a false match can only lose its own priority.
+    if [ "$GAME_PRIORITY" = "yes" ]; then
+        $NFT add rule ip mangle forward ip saddr "$LAN_SUBNET" meta l4proto udp ip length \<= 300             counter ip dscp set ef comment '"game up"'
+        $NFT add rule ip mangle forward ip daddr "$LAN_SUBNET" udp sport != 443 ip length \<= 1000             counter ip dscp set ef comment '"game down"'
+    fi
+    if [ "$FAIRNESS" = "priority" ]; then
+        $NFT add rule ip mangle forward ip saddr "$PRIORITY_HOST" counter return
+        $NFT add rule ip mangle forward ip daddr "$PRIORITY_HOST" counter return
+        $NFT add rule ip mangle forward counter ip dscp set cs1
+    fi
+}
+
+stop() {
+    $TC qdisc del dev "$WAN_IF" root    2>/dev/null || true
+    $TC qdisc del dev "$WAN_IF" ingress 2>/dev/null || true
+    $TC qdisc del dev ifb-up   root 2>/dev/null || true
+    $TC qdisc del dev ifb-down root 2>/dev/null || true
+    $IP link del ifb-up   2>/dev/null || true
+    $IP link del ifb-down 2>/dev/null || true
+}
+
+start() {
+    stop
+    modprobe sch_cake; modprobe ifb
+    $IP link add ifb-up   type ifb; $IP link set ifb-up up
+    $IP link add ifb-down type ifb; $IP link set ifb-down up
+
+    # classful root on egress purely to host the filters
+    $TC qdisc add dev "$WAN_IF" root handle 1: prio bands 3
+
+    # 1) router's own LAN chatter (src+dst local): never shape
+    $TC filter add dev "$WAN_IF" parent 1: protocol ip prio 1 u32 \
+        match ip src "$LAN_SUBNET" match ip dst "$LAN_SUBNET" action pass
+    # 2) dst is a LAN host => this is DOWNLOAD being delivered
+    $TC filter add dev "$WAN_IF" parent 1: protocol ip prio 2 u32 \
+        match ip dst "$LAN_SUBNET" action mirred egress redirect dev ifb-down
+    # 3) anything else => UPLOAD heading to the Hub
+    $TC filter add dev "$WAN_IF" parent 1: protocol ip prio 3 u32 \
+        match u32 0 0 action mirred egress redirect dev ifb-up
+
+    # Host isolation: because upload and download have their own qdiscs we know
+    # the direction, so the precise options beat triple-isolate (which is the
+    # compromise for when you cannot tell). Upload fairness is by source host,
+    # download fairness is by destination host; within each host, flows are fair.
+    #
+    # `nat` on the UPLOAD side is load-bearing, not decoration. tc egress runs
+    # AFTER the NAT postrouting hook, so by the time packets reach ifb-up every
+    # source address has been masqueraded to the router. Verified by counting in
+    # a postrouting chain at priority 200: 7600 packets from 192.168.1.2, zero
+    # from the real host. Without `nat`, dual-srchost sees one host for the whole
+    # LAN and does nothing at all; `nat` makes CAKE recover the pre-NAT address
+    # from conntrack. Download does NOT need it -- inbound NAT is already
+    # reversed in PREROUTING, so dual-dsthost sees real hosts (also verified).
+    #
+    # ack-filter only applies upstream, where the ACK flood actually is.
+    $TC qdisc replace dev ifb-up   root cake $RATE_UL $OVERHEAD diffserv4 dual-srchost nat wash rtt $RTT $AF
+    $TC qdisc replace dev ifb-down root cake $RATE_DL $OVERHEAD diffserv4 dual-dsthost ingress rtt $RTT_DL
+
+    apply_fairness
+}
+
+case "$1" in
+    start) start ;;
+    stop)  stop ;;
+    restart) stop; start ;;
+    fairness)
+        case "$2" in
+            fair|priority) ;;
+            *) echo "usage: $0 fairness {fair|priority}"; exit 1 ;;
+        esac
+        sed -i "s/^FAIRNESS=.*/FAIRNESS=$2/" "$CONF"
+        FAIRNESS=$2
+        apply_fairness
+        echo "fairness: $FAIRNESS"
+        ;;
+    profile)
+        want=$2; [ "$want" = "shaped" ] && want=gaming   # old name
+        case "$want" in
+            gaming|max) ;;
+            *) echo "usage: $0 profile {gaming|max}"; exit 1 ;;
+        esac
+        sed -i "s/^PROFILE=.*/PROFILE=$want/" "$CONF"
+        # cake-autorate must not run in max: it would immediately reimpose a cap.
+        # It is disabled anyway (it cost ~30% throughput on this line, see conf).
+        if [ "$want" = "max" ]; then
+            systemctl stop cake-autorate 2>/dev/null || true
+        fi
+        . "$CONF"; rates
+        # Change the rate on the live qdiscs rather than rebuilding them: a
+        # rebuild drops every queued packet and resets the counters, which is a
+        # visible hitch in a game that is running while you switch. `change`
+        # keeps every other cake option as it was.
+        if $TC qdisc show dev ifb-down 2>/dev/null | grep -q cake &&
+           $TC qdisc show dev ifb-up   2>/dev/null | grep -q cake; then
+            $TC qdisc change dev ifb-down root cake $RATE_DL rtt $RTT_DL
+            $TC qdisc change dev ifb-up   root cake $RATE_UL
+        else
+            start
+        fi
+        echo "profile: $PROFILE"
+        ;;
+    show)
+        echo "profile=$PROFILE dl=$DL_RATE ul=$UL_RATE rtt=$RTT ack=$ACK fairness=$FAIRNESS"
+        ;;
+    status)
+        echo "profile: $PROFILE"
+        echo "rates: dl $DL_RATE, ul $UL_RATE, rtt $RTT, ack-filter $ACK"
+        echo "fairness: $FAIRNESS"
+        echo; echo "== ifb-up (UPLOAD) =="; $TC -s qdisc show dev ifb-up
+        echo; echo "== ifb-down (DOWNLOAD) =="; $TC -s qdisc show dev ifb-down ;;
+    *) echo "usage: $0 {start|stop|restart|status|show|profile <gaming|max>|fairness <fair|priority>}"; exit 1 ;;
+esac

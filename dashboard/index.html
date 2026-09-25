@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0e13">
+<title>homenet · shaper</title>
+<style>
+  :root {
+    --bg:#0b0e13; --panel:#11151c; --panel2:#151a22; --line:#222a35; --line2:#1a212b;
+    --fg:#e6edf3; --dim:#8b949e; --faint:#5c6673;
+    --up:#d29922; --down:#388bfd; --lat:#3fb950;
+    --good:#3fb950; --warn:#d29922; --bad:#f85149; --prio:#a371f7;
+    --gap:12px;
+  }
+  * { box-sizing:border-box; }
+  html { -webkit-text-size-adjust:100%; }
+  body {
+    margin:0; color:var(--fg);
+    background:radial-gradient(1200px 600px at 20% -10%, #141b26 0%, transparent 60%), var(--bg);
+    font:13px/1.45 ui-monospace,"Cascadia Code","SF Mono",Menlo,Consolas,monospace;
+    font-variant-numeric:tabular-nums;
+  }
+  .wrap { max-width:1360px; margin:0 auto;
+          padding:max(14px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) 28px max(16px,env(safe-area-inset-left)); }
+
+  /* ---- header ---- */
+  header { display:flex; align-items:center; justify-content:space-between; gap:6px 14px; flex-wrap:wrap; }
+  .brand { display:flex; align-items:baseline; gap:10px; }
+  h1 { font-size:16px; margin:0; font-weight:650; letter-spacing:.3px; }
+  h1 em { color:var(--faint); font-style:normal; font-weight:400; font-size:12px; margin-left:6px; }
+  .live { display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--dim); }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--faint); flex:none; }
+  .dot.ok { background:var(--good); box-shadow:0 0 0 3px rgba(63,185,80,.15); }
+  .sys { color:var(--dim); font-size:11.5px; display:flex; gap:4px 14px; flex-wrap:wrap; }
+  .sys b { color:var(--fg); font-weight:600; }
+  .bar2 { display:flex; align-items:center; gap:8px 14px; flex-wrap:wrap; margin:10px 0 14px; }
+  .badges { display:flex; gap:6px; flex-wrap:wrap; }
+  .mode { display:inline-flex; border:1px solid var(--line); border-radius:9px; padding:2px; background:var(--panel); }
+  .mode button { font:inherit; font-size:12px; color:var(--dim); background:none; border:0; border-radius:7px;
+                 padding:6px 14px; min-height:34px; cursor:pointer; white-space:nowrap; touch-action:manipulation; }
+  .mode button:hover { color:var(--fg); }
+  .mode button.on[data-p="gaming"] { background:rgba(63,185,80,.16); color:var(--good); }
+  .mode button.on[data-p="max"]    { background:rgba(210,153,34,.16); color:var(--up); }
+  .mode button:disabled { opacity:.5; cursor:wait; }
+  .mode-note { font-size:11px; color:var(--dim); }
+  .badge { font-size:10.5px; padding:2px 9px; border-radius:999px; border:1px solid var(--line); color:var(--dim); white-space:nowrap; }
+  .badge.on   { border-color:rgba(210,153,34,.5);  background:rgba(210,153,34,.12);  color:var(--up); }
+  .badge.ok   { border-color:rgba(63,185,80,.45);  background:rgba(63,185,80,.12);   color:var(--good); }
+  .badge.bad  { border-color:rgba(248,81,73,.45);  background:rgba(248,81,73,.12);   color:var(--bad); }
+  .badge.prio { border-color:rgba(163,113,247,.45);background:rgba(163,113,247,.12); color:var(--prio); }
+
+  /* ---- hero numbers ---- */
+  .hero { display:grid; gap:var(--gap); grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .tile { position:relative; overflow:hidden; border:1px solid var(--line); border-radius:11px;
+          background:linear-gradient(180deg,var(--panel2),var(--panel)); padding:12px 14px 0;
+          display:flex; flex-direction:column; }
+  .tile .k { font-size:10px; letter-spacing:1.2px; text-transform:uppercase; color:var(--faint); position:relative; }
+  .tile .v { font-size:clamp(26px,4.2vw,38px); font-weight:650; line-height:1.1; margin-top:2px; position:relative; }
+  .tile .v s { font-size:12px; font-weight:400; color:var(--dim); text-decoration:none; margin-left:4px; }
+  .tile .sub { font-size:11px; color:var(--dim); position:relative; margin-top:2px; }
+  .tile .sp { height:28px; margin:8px -14px 0; margin-top:auto; padding-top:8px; box-sizing:content-box; }
+  /* Every sparkline fills exactly its box. Without an explicit height an SVG
+     falls back to its viewBox aspect ratio and spills onto the rows below. */
+  .sp, .d-graph { overflow:hidden; }
+  .sp svg, .d-graph svg { display:block; width:100%; height:100%; }
+
+  .stats { display:grid; gap:1px; grid-template-columns:repeat(6,minmax(0,1fr)); margin:var(--gap) 0;
+           background:var(--line); border:1px solid var(--line); border-radius:11px; overflow:hidden; }
+  .stat { background:var(--panel); padding:9px 12px; min-width:0; }
+  .stat .k { font-size:9.5px; letter-spacing:1px; text-transform:uppercase; color:var(--faint); white-space:nowrap; }
+  .stat .v { font-size:17px; font-weight:600; margin-top:1px; white-space:nowrap; }
+  .stat .v s { font-size:10.5px; font-weight:400; color:var(--dim); text-decoration:none; margin-left:3px; }
+  .stat .sub { font-size:10.5px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  /* ---- cards ---- */
+  .main { display:grid; gap:var(--gap);
+          grid-template-columns:minmax(0,2fr) minmax(0,1fr);
+          grid-template-areas:"chart hist" "dev aqm"; align-items:stretch; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:11px; padding:12px 14px; min-width:0;
+          display:flex; flex-direction:column; }
+  .card > h2 { font-size:10.5px; letter-spacing:1.1px; text-transform:uppercase; margin:0 0 10px; color:var(--faint); font-weight:600;
+               display:flex; justify-content:space-between; align-items:baseline; gap:4px 12px; flex-wrap:wrap; }
+  .card > h2 .meta { letter-spacing:0; text-transform:none; font-weight:400; }
+  #c-chart { grid-area:chart; } #c-hist { grid-area:hist; } #c-dev { grid-area:dev; } #c-aqm { grid-area:aqm; }
+  .meta { color:var(--dim); font-size:11px; }
+  .foot { color:var(--faint); font-size:10.5px; margin-top:8px; line-height:1.5; }
+  .legend { display:flex; gap:12px; flex-wrap:wrap; font-size:10.5px; letter-spacing:0; text-transform:none; font-weight:400; }
+  .legend i { display:inline-block; width:10px; height:2px; vertical-align:middle; margin-right:5px; border-radius:1px; }
+
+  svg.plot { display:block; width:100%; }
+  #chart { height:clamp(190px,24vw,280px); }
+  #hist  { flex:1 1 150px; min-height:150px; max-height:300px; height:150px; }
+  .ax { fill:var(--faint); font-size:10px; }
+  .pct { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:10px; }
+  .pct div { border-top:2px solid var(--line); padding-top:4px; }
+  .pct .k { font-size:9.5px; letter-spacing:1px; text-transform:uppercase; color:var(--faint); }
+  .pct b { font-size:17px; font-weight:600; }
+  .pct b s { font-size:10.5px; font-weight:400; color:var(--dim); text-decoration:none; margin-left:3px; }
+
+  /* ---- devices: live rate first; rows become cards on narrow screens ---- */
+  .dev { display:grid; align-items:center; gap:2px 16px; padding:8px 4px; border-bottom:1px solid var(--line2);
+         grid-template-columns:minmax(170px,1.5fr) minmax(96px,.8fr) minmax(96px,.8fr) minmax(120px,1.5fr) 92px;
+         grid-template-areas:"id dn up graph pk"; }
+  .dev.head { color:var(--faint); font-size:9.5px; letter-spacing:1px; text-transform:uppercase; padding-top:0; }
+  .dev:last-child { border-bottom:none; }
+  .dev.live { background:linear-gradient(90deg,rgba(56,139,253,.07),transparent 70%); }
+  .dev > * { min-width:0; }
+  .d-id { grid-area:id; } .d-dn { grid-area:dn; } .d-up { grid-area:up; }
+  .d-graph { grid-area:graph; height:30px; } .d-pk { grid-area:pk; text-align:right; }
+  .rt { font-size:17px; font-weight:600; line-height:1.15; white-space:nowrap; }
+  .rt s { font-size:10px; font-weight:400; color:var(--dim); text-decoration:none; margin-left:3px; }
+  .rt.idle { color:var(--faint); font-weight:400; }
+  .nm { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .nm .tag { font-weight:400; }
+  .sm { font-size:11px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sm.os { color:var(--lat); }
+  .zero { color:var(--faint); }
+  .tag { padding:1px 6px; border-radius:999px; font-size:9.5px; margin-left:4px; vertical-align:1px; }
+  .tag.dhcp   { background:rgba(63,185,80,.13);   color:var(--good); }
+  .tag.netbios{ background:rgba(56,139,253,.13);  color:var(--down); }
+  .tag.vendor { background:rgba(210,153,34,.13);  color:var(--up); }
+  .tag.none   { background:rgba(139,148,158,.12); color:var(--dim); }
+  .tag.prio   { background:rgba(163,113,247,.16); color:var(--prio); }
+  .bar { height:4px; background:#080b10; border-radius:2px; overflow:hidden; display:flex; margin-top:4px; }
+  .bar > i { display:block; height:100%; transition:width .3s ease; }
+  details { margin-top:6px; border-top:1px solid var(--line); padding-top:6px; }
+  summary { cursor:pointer; color:var(--dim); font-size:11px; padding:4px; list-style:none; }
+  summary::-webkit-details-marker { display:none; }
+  summary::before { content:"▸ "; color:var(--faint); }
+  details[open] summary::before { content:"▾ "; }
+  details .dev { opacity:.55; }
+
+  /* ---- queue table ---- */
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th,td { padding:4px 4px; border-bottom:1px solid var(--line2); text-align:right; white-space:nowrap; }
+  th:first-child, td:first-child { text-align:left; color:var(--dim); }
+  th { color:var(--faint); font-weight:500; font-size:9.5px; letter-spacing:1px; text-transform:uppercase; }
+  tr.sec td { color:var(--faint); font-size:9.5px; letter-spacing:1px; text-transform:uppercase; padding-top:10px; border-bottom-color:var(--line); }
+  td small { display:block; color:var(--faint); font-size:10px; }
+
+  /* ---- breakpoints ---- */
+  @media (max-width:1100px) {
+    .main { grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+            grid-template-areas:"chart chart" "dev dev" "hist aqm"; }
+    .stats { grid-template-columns:repeat(3,minmax(0,1fr)); }
+    /* the queue table sits in a half-width or phone-width column from here down */
+    table { table-layout:fixed; }
+    th,td { white-space:normal; overflow-wrap:anywhere; }
+    th:first-child, td:first-child { width:34%; }
+  }
+  @media (max-width:760px) {
+    :root { --gap:10px; }
+    .main { grid-template-columns:minmax(0,1fr); grid-template-areas:"chart" "dev" "hist" "aqm"; }
+    .dev.head { display:none; }
+    .dev { grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:4px 14px; padding:10px 2px;
+           grid-template-areas:"id id" "dn up" "graph graph"; }
+    .d-pk { display:none; }
+    .d-graph { height:26px; }
+  }
+  @media (max-width:560px) {
+    .wrap { padding-left:max(10px,env(safe-area-inset-left)); padding-right:max(10px,env(safe-area-inset-right)); }
+    .hero { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .hero .tile:first-child { grid-column:1/-1; }
+    .tile { padding:10px 12px 0; }
+    .tile .sp { height:22px; margin-left:-12px; margin-right:-12px; }
+    .stats { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .card { padding:11px 11px; border-radius:10px; }
+    table { font-size:11.5px; }
+    h1 em { display:none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="brand"><h1>homenet<em>one-armed CAKE shaper</em></h1><span class="live" id="live"><span class="dot"></span>connecting</span></div>
+  <div class="sys" id="sys"></div>
+</header>
+<div class="bar2">
+  <div class="mode" id="mode" role="group" aria-label="Shaper profile">
+    <button data-p="gaming" title="Download capped below line speed so CAKE keeps the queue short">Gaming</button>
+    <button data-p="max" title="Download unshaped: full speed, latency rises when the line is busy">Max throughput</button>
+  </div>
+  <span class="mode-note" id="mode-note"></span>
+  <div class="badges" id="badges"></div>
+</div>
+
+<section class="hero" id="hero"></section>
+<section class="stats" id="stats"></section>
+
+<div class="main">
+  <div class="card" id="c-chart">
+    <h2><span>Latency &amp; throughput</span>
+      <span class="legend">
+        <span><i style="background:var(--lat)"></i>latency ms</span>
+        <span><i style="background:var(--down)"></i>↓ Mbps</span>
+        <span><i style="background:var(--up)"></i>↑ Mbps</span>
+      </span></h2>
+    <svg class="plot" id="chart">
+      <defs>
+        <linearGradient id="gd" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#388bfd" stop-opacity=".32"/><stop offset="100%" stop-color="#388bfd" stop-opacity="0"/>
+        </linearGradient>
+        <linearGradient id="gu" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#d29922" stop-opacity=".26"/><stop offset="100%" stop-color="#d29922" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      <g id="ch-grid"></g>
+      <path id="ch-darea" fill="url(#gd)" stroke="none"></path>
+      <path id="ch-uarea" fill="url(#gu)" stroke="none"></path>
+      <path id="ch-down" fill="none" stroke="var(--down)" stroke-width="1.6"></path>
+      <path id="ch-up"   fill="none" stroke="var(--up)"   stroke-width="1.6"></path>
+      <path id="ch-lat"  fill="none" stroke="var(--lat)"  stroke-width="1.8"></path>
+      <g id="ch-over"></g>
+    </svg>
+    <div class="foot" id="chart-meta"></div>
+  </div>
+
+  <div class="card" id="c-hist">
+    <h2><span>Latency spread</span><span class="meta" id="hist-meta"></span></h2>
+    <svg class="plot" id="hist"><g id="hist-g"></g></svg>
+    <div class="pct" id="pct"></div>
+  </div>
+
+  <div class="card" id="c-dev">
+    <h2><span>Devices</span><span class="meta" id="devcount"></span></h2>
+    <div class="dev head"><div class="d-id">device</div><div class="d-dn">↓ download</div><div class="d-up">↑ upload</div><div class="d-graph" style="height:auto">last 60s</div><div class="d-pk">60s peak</div></div>
+    <div id="devs"></div>
+    <details id="stale"><summary id="stale-sum"></summary><div id="stale-list"></div></details>
+    <div class="foot" id="dev-note"></div>
+  </div>
+
+  <div class="card" id="c-aqm">
+    <h2><span>Queue &amp; AQM</span><span class="meta" id="aqm-mode"></span></h2>
+    <table>
+      <thead><tr><th></th><th style="color:var(--down)">↓ down</th><th style="color:var(--up)">↑ up</th></tr></thead>
+      <tbody id="aqm"></tbody>
+    </table>
+    <div class="foot">Queue delay is the backlog divided by the drain rate, which is the extra lag a new packet sees. Only Best Effort normally carries traffic; the other tins fill only when an app marks DSCP.</div>
+  </div>
+</div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s??"").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const mbps = (b) => Number.isFinite(b) ? (b/1e6).toFixed(2) : "–";
+const bytes = (n) => { const u=["B","KB","MB","GB","TB"]; let i=0;
+  while (n>=1024 && i<u.length-1) { n/=1024; i++; } return n.toFixed(i?1:0)+" "+u[i]; };
+const dur = (s) => { s=Math.floor(s); const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
+  return d?`${d}d ${h}h`:h?`${h}h ${m}m`:`${m}m`; };
+const ago = (sec) => sec<=0?"—":sec<60?sec+"s":sec<3600?Math.floor(sec/60)+"m":sec<86400?Math.floor(sec/3600)+"h":Math.floor(sec/86400)+"d";
+const latCol = (v) => !(v>0) ? "var(--dim)" : v<50 ? "var(--good)" : v<100 ? "var(--warn)" : "var(--bad)";
+
+// ---- data buffers (fast path) ----
+let series = { down:[], up:[], lat:[] };
+let caps = { dl:0, ul:0 };
+let fastMs = 50;
+const MAXPTS = 600;
+let emaD = 0, emaU = 0; const EMA = 0.3;
+let dirty = false, fps = 0, frames = 0, rate1s = 0, samples = 0;
+let peakD = 0, peakU = 0;
+let L = { min:0, med:0, p95:0, p99:0, max:0, now:0, jitter:0, fail:0, n:0 };
+
+function markDirty(){ dirty = true; }
+function frame(){ if (dirty){ dirty=false; frames++; drawChart(); } requestAnimationFrame(frame); }
+requestAnimationFrame(frame);
+setInterval(()=>{ fps=frames; frames=0; rate1s=samples; samples=0; }, 1000);
+
+function onTick(down, up, lat){
+  emaD = emaD ? emaD + EMA*(down-emaD) : down;
+  emaU = emaU ? emaU + EMA*(up-emaU) : up;
+  series.down.push(emaD); series.up.push(emaU); series.lat.push(lat);
+  for (const k of ["down","up","lat"]) if (series[k].length>MAXPTS) series[k].shift();
+  if (emaD>peakD) peakD=emaD; if (emaU>peakU) peakU=emaU;
+  samples++; markDirty();
+}
+
+// Each plot's viewBox tracks its real pixel size, so text stays 10px and lines
+// stay crisp at any width instead of being scaled down on a phone.
+const size = {};
+function fit(el){ const r = el.getBoundingClientRect();
+  const w = Math.max(200, Math.round(r.width)), h = Math.max(100, Math.round(r.height));
+  if (size[el.id]?.w === w && size[el.id]?.h === h) return false;
+  size[el.id] = { w, h }; el.setAttribute("viewBox", `0 0 ${w} ${h}`); return true; }
+const ro = new ResizeObserver(()=>{ if (fit($("chart"))) markDirty(); if (fit($("hist"))) drawHist(); });
+for (const el of [document.body, $("chart"), $("hist")]) ro.observe(el);
+
+// ---- tile sparkline ----
+// 600 raw samples squeezed into a 170px tile is noise, so average into ~120
+// buckets first. Negative values (failed probes) are left out of the average,
+// and a bucket with no good samples becomes a gap rather than a drop to zero.
+function spark(arr, colour){
+  const src = arr||[], B = Math.min(120, src.length);
+  if (B < 2) return "";
+  const pts = [];
+  for (let b=0;b<B;b++){
+    const lo = Math.floor(b*src.length/B), hi = Math.floor((b+1)*src.length/B);
+    let sum=0, n=0; for (let i=lo;i<hi;i++){ const v=src[i]; if (v>=0 && Number.isFinite(v)){ sum+=v; n++; } }
+    pts.push(n ? sum/n : null);
+  }
+  const good = pts.filter(v=>v!==null); if (!good.length) return "";
+  const w = 120, h = 30, max = Math.max(...good) * 1.1 || 1;
+  const X = i => i/(B-1)*w, Y = v => h - (v/max)*(h-1);
+  let line="", area="", run=[];
+  const flush = () => { if (run.length>1){
+      const d = run.map(([i,v],k)=>(k?"L":"M")+X(i).toFixed(1)+" "+Y(v).toFixed(1)).join(" ");
+      line += d+" "; area += `${d} L${X(run[run.length-1][0]).toFixed(1)} ${h} L${X(run[0][0]).toFixed(1)} ${h}Z `; }
+    run = []; };
+  pts.forEach((v,i)=>{ if (v===null) flush(); else run.push([i,v]); }); flush();
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">`
+    + `<path d="${area}" fill="${colour}" opacity=".16"/>`
+    + `<path d="${line}" fill="none" stroke="${colour}" stroke-width="1.5" stroke-linejoin="round" vector-effect="non-scaling-stroke"/></svg>`;
+}
+
+// ---- latency statistics over the whole window (1Hz) ----
+function latStats(){
+  const all = series.lat, ok = all.filter(v=>v>0);
+  L.n = ok.length; L.fail = all.length - ok.length;
+  if (!ok.length) return;
+  const s = [...ok].sort((a,b)=>a-b), q = p => s[Math.min(s.length-1, Math.floor(s.length*p))];
+  L.min = s[0]; L.max = s[s.length-1]; L.med = q(.5); L.p95 = q(.95); L.p99 = q(.99);
+  const recent = ok.slice(-20).sort((a,b)=>a-b); L.now = recent[Math.floor(recent.length/2)];
+  // jitter: mean change between consecutive successful probes, as games and VoIP report it
+  let j=0, jn=0, prev=-1;
+  for (const v of all.slice(-200)){ if (v>0){ if (prev>0){ j+=Math.abs(v-prev); jn++; } prev=v; } }
+  L.jitter = jn ? j/jn : 0;
+}
+
+// ---- main chart: shared time axis, latency left, throughput right ----
+function niceMax(v){ const mag=Math.pow(10,Math.floor(Math.log10(v||1))); const n=(v||1)/mag;
+  return (n<=1?1:n<=2?2:n<=2.5?2.5:n<=5?5:10)*mag; }
+let scaleLat = 100, scaleTp = 5e6;
+const stick = (cur,want) => (want>cur || want<cur*0.55) ? want : cur;
+
+function drawChart(){
+  const h = series, n = Math.max(h.lat.length, h.down.length, h.up.length);
+  const sz = size.chart; if (!n || !sz) return;
+  const W = sz.w, H = sz.h, narrow = W < 480;
+  const x0 = narrow?30:38, x1 = W-(narrow?32:44), y0 = 12, y1 = H-18;
+
+  let latMax=0, tp=0;
+  for (const v of h.lat) if (v>latMax) latMax=v;
+  for (const v of h.down) if (v>tp) tp=v;
+  for (const v of h.up)   if (v>tp) tp=v;
+  scaleLat = stick(scaleLat, niceMax(Math.max(60,latMax)*1.15));
+  scaleTp  = stick(scaleTp,  niceMax(Math.max(caps.dl,caps.ul,tp)*1.1 || 1));
+  const px = i => x0 + (n<=1?0:i/(n-1))*(x1-x0);
+  const yL = v => y1 - (v/scaleLat)*(y1-y0);
+  const yR = v => y1 - (v/scaleTp)*(y1-y0);
+
+  // break the line wherever a probe failed (-1) rather than drawing to zero
+  const path = (arr,y) => { let d="",pen=false;
+    for (let i=0;i<arr.length;i++){ const v=arr[i];
+      if (v<0){ pen=false; continue; }
+      d += (pen?"L":"M")+px(i).toFixed(1)+" "+y(v).toFixed(1)+" "; pen=true; }
+    return d; };
+  const area = (arr,y) => { const d=path(arr,y); return d ? d+`L${px(arr.length-1).toFixed(1)} ${y1} L${px(0).toFixed(1)} ${y1} Z` : ""; };
+
+  $("ch-darea").setAttribute("d", area(h.down,yR));
+  $("ch-uarea").setAttribute("d", area(h.up,yR));
+  $("ch-down").setAttribute("d", path(h.down,yR));
+  $("ch-up").setAttribute("d",   path(h.up,yR));
+  $("ch-lat").setAttribute("d",  path(h.lat,yL));
+
+  let g="";
+  for (let i=0;i<=4;i++){ const f=i/4, y=y1-f*(y1-y0);
+    g += `<line x1="${x0}" x2="${x1}" y1="${y}" y2="${y}" stroke="#1b222c"/>`;
+    g += `<text class="ax" x="${x0-5}" y="${y+3}" text-anchor="end">${(scaleLat*f).toFixed(0)}</text>`;
+    g += `<text class="ax" x="${x1+5}" y="${y+3}">${(scaleTp*f/1e6).toFixed(scaleTp<4e6?1:0)}</text>`; }
+  // the 50ms line is the budget a game or call needs; make it visible
+  if (50 < scaleLat) g += `<line x1="${x0}" x2="${x1}" y1="${yL(50)}" y2="${yL(50)}" stroke="var(--lat)" stroke-dasharray="1 4" opacity=".55"/>`
+    + `<text class="ax" x="${x0+4}" y="${yL(50)-3}" style="fill:var(--lat);opacity:.7">50 ms</text>`;
+  if (caps.dl) g += `<line x1="${x0}" x2="${x1}" y1="${yR(caps.dl)}" y2="${yR(caps.dl)}" stroke="var(--down)" stroke-dasharray="4 4" opacity=".4"/>`;
+  if (caps.ul) g += `<line x1="${x0}" x2="${x1}" y1="${yR(caps.ul)}" y2="${yR(caps.ul)}" stroke="var(--up)" stroke-dasharray="4 4" opacity=".4"/>`;
+  g += `<text class="ax" x="${x0}" y="${H-4}">-${(n*fastMs/1000).toFixed(0)}s</text>`;
+  g += `<text class="ax" x="${x1}" y="${H-4}" text-anchor="end">now</text>`;
+  $("ch-grid").innerHTML = g;
+
+  // probe failures as red ticks on the time axis
+  let o="";
+  for (let i=0;i<h.lat.length;i++) if (h.lat[i]<0) o += `M${px(i).toFixed(1)} ${y1}v-6`;
+  $("ch-over").innerHTML = o ? `<path d="${o}" stroke="var(--bad)" stroke-width="1.5"/>` : "";
+}
+
+// ---- latency distribution ----
+function drawHist(){
+  const ok = series.lat.filter(v=>v>0), g = $("hist-g"), sz = size.hist;
+  if (!sz) return;
+  if (ok.length < 20){ g.innerHTML = `<text class="ax" x="8" y="20">collecting…</text>`; return; }
+  const W = sz.w, H = sz.h, Lp = 4, B = 16, T = 14;
+  const hi = Math.max(L.max, L.med*1.5, 40);
+  const N = Math.max(12, Math.min(40, Math.floor((W-Lp*2)/9)));
+  const buckets = new Array(N).fill(0);
+  for (const v of ok) buckets[Math.min(N-1, Math.floor(v/hi*N))]++;
+  const peak = Math.max(...buckets, 1), bw = (W-Lp*2)/N;
+  let s = "";
+  buckets.forEach((c,i)=>{
+    const hh = Math.max(c?1.5:0, (c/peak)*(H-B-T)), mid = (i+0.5)*hi/N;
+    s += `<rect x="${(Lp+i*bw).toFixed(1)}" y="${(H-B-hh).toFixed(1)}" width="${Math.max(1,bw-1.5).toFixed(1)}" height="${hh.toFixed(1)}" fill="${latCol(mid)}" opacity=".8" rx="1.5"/>`;
+  });
+  for (const [v,lab,col] of [[L.med,"p50","var(--fg)"],[L.p95,"p95","var(--warn)"],[L.p99,"p99","var(--bad)"]]){
+    const x = Lp + (Math.min(v,hi)/hi)*(W-Lp*2);
+    s += `<line x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="${T-2}" y2="${H-B}" stroke="${col}" stroke-dasharray="2 3" opacity=".6"/>`;
+    s += `<text class="ax" x="${x.toFixed(1)}" y="${T-4}" text-anchor="middle" style="fill:${col}">${lab}</text>`;
+  }
+  s += `<text class="ax" x="${Lp}" y="${H-3}">0</text>`;
+  s += `<text class="ax" x="${W-Lp}" y="${H-3}" text-anchor="end">${hi.toFixed(0)} ms</text>`;
+  g.innerHTML = s;
+  $("hist-meta").textContent = `${ok.length} samples`;
+  const cell = (k,v,col) => `<div style="border-color:${col}"><div class="k">${k}</div><b style="color:${col}">${Math.round(v)}<s>ms</s></b></div>`;
+  $("pct").innerHTML = cell("median",L.med,latCol(L.med)) + cell("p95",L.p95,latCol(L.p95)) + cell("p99",L.p99,latCol(L.p99));
+}
+
+// ---- hero tiles + stat strip ----
+function tile(k, v, unit, sub, arr, colour, vcol){
+  return `<div class="tile"><div class="k">${k}</div>`
+    + `<div class="v"${vcol?` style="color:${vcol}"`:""}>${v}${unit?`<s>${unit}</s>`:""}</div>`
+    + `<div class="sub">${sub||""}</div><div class="sp">${arr?spark(arr,colour):""}</div></div>`;
+}
+function stat(k, v, unit, sub, vcol){
+  return `<div class="stat"><div class="k">${k}</div><div class="v"${vcol?` style="color:${vcol}"`:""}>${v}${unit?`<s>${unit}</s>`:""}</div>`
+    + `<div class="sub" title="${esc(sub)}">${sub||""}</div></div>`;
+}
+
+function renderTop(s){
+  const dl = s.download||{}, ul = s.upload||{}, devs = s.devices||[];
+  const last = a => a.length ? a[a.length-1] : 0;
+  const capTxt = q => q.unlimited ? "unshaped" : "cap "+mbps(q.shapedBps);
+  $("hero").innerHTML = [
+    tile("latency", L.n ? Math.round(L.now) : "–", "ms",
+      `jitter ${L.jitter.toFixed(1)} ms · p95 ${L.n?Math.round(L.p95):"–"} ms`,
+      series.lat, "#3fb950", latCol(L.now)),
+    tile("download", mbps(last(series.down)), "Mbps", `peak ${mbps(peakD)} · ${capTxt(dl)}`, series.down, "#388bfd"),
+    tile("upload", mbps(last(series.up)), "Mbps", `peak ${mbps(peakU)} · ${capTxt(ul)}`, series.up, "#d29922"),
+  ].join("");
+
+  const qms = Math.max(dl.backlogMs||0, ul.backlogMs||0);
+  const pr = s.probe || {};
+  const failPct = pr.mode==="udp" ? (pr.lossPct||0) : series.lat.length ? L.fail/series.lat.length*100 : 0;
+  const drop = q => q ? (q.dropPct||0) : 0;
+  const act = devs.filter(d=>d.upBps+d.downBps>2000).length, present = devs.filter(d=>d.present!==false).length;
+  const ct = s.conntrack||{}, w = s.wire||{};
+  $("stats").innerHTML = [
+    stat("queue delay", qms<10?qms.toFixed(1):qms.toFixed(0), "ms",
+      `↓ ${(dl.backlogMs||0).toFixed(1)} · ↑ ${(ul.backlogMs||0).toFixed(1)}`, qms>30?"var(--bad)":qms>10?"var(--warn)":""),
+    stat("cake drops", drop(ul).toFixed(1), "% ↑", `↓ ${drop(dl).toFixed(2)}% · lifetime`),
+    stat("probe loss", failPct.toFixed(1), "%", pr.mode==="udp" ? `last ${pr.samples} UDP probes` : `${L.fail} of ${series.lat.length} in window`, failPct>2?"var(--bad)":""),
+    stat("eth0 wire", mbps((w.rxBps||0)+(w.txBps||0)), "Mbps",
+      `in + out · ${(w.rxErrors||0)+(w.txErrors||0)} errors`),
+    stat("devices", `${act}<s>active</s>`, "", `${present} present · ${devs.length} seen`),
+    stat("connections", (ct.count||0).toLocaleString(), "", `of ${(ct.max||0).toLocaleString()} tracked`),
+  ].join("");
+}
+
+// ---- queue table ----
+function renderAqm(s){
+  const d = s.download, u = s.upload;
+  if (!d && !u){ $("aqm").innerHTML = `<tr><td colspan="3">no qdisc</td></tr>`; return; }
+  const both = (fn) => `<td>${d?fn(d):"–"}</td><td>${u?fn(u):"–"}</td>`;
+  const sum = (q,k) => (q.tins||[]).reduce((a,t)=>a+(t[k]||0),0);
+  const row = (k,fn) => `<tr><td>${k}</td>${both(fn)}</tr>`;
+  let h = row("shaped at", q => q.unlimited ? `<span style="color:var(--up)">unlimited</span>` : mbps(q.shapedBps)+" Mbps")
+    + row("queue now", q => `<span style="color:${q.backlogMs>30?"var(--bad)":""}">${(q.backlogMs||0).toFixed(1)} ms</span>`)
+    + row("drops", q => { const c = q.dropPct<2?"var(--good)":q.dropPct<8?"var(--warn)":"var(--bad)";
+        return `<span style="color:${c}">${(q.dropPct||0).toFixed(2)}%</span><small>${(q.drops||0).toLocaleString()} pkts</small>`; })
+    + row("ECN marked", q => sum(q,"ecnMark").toLocaleString())
+    + row("ACKs thinned", q => sum(q,"ackDrops").toLocaleString())
+    + row("flows light · bulk", q => `${sum(q,"sparseFlows")} · ${sum(q,"bulkFlows")}`)
+    + row("buffer", q => q.memLimit ? `${(q.memUsed/q.memLimit*100).toFixed(1)}%<small>${bytes(q.memUsed)}</small>` : "–");
+  h += `<tr class="sec"><td>tin · avg / peak delay</td><td></td><td></td></tr>`;
+  const names = ["Voice","Video","Best Effort","Bulk"];
+  for (const n of names){
+    const td = d?.tins?.find(t=>t.name===n), tu = u?.tins?.find(t=>t.name===n);
+    if (!(td?.bytes || tu?.bytes)) continue;
+    const cell = t => t && t.bytes ? `${t.avgDelayMs.toFixed(1)} / ${t.peakDelayMs.toFixed(0)} ms<small>${bytes(t.bytes)}</small>` : `<span class="zero">–</span>`;
+    h += `<tr><td>${n}</td><td>${cell(td)}</td><td>${cell(tu)}</td></tr>`;
+  }
+  $("aqm").innerHTML = h;
+  const q = d||u;
+  $("aqm-mode").textContent = `${q.flowmode||""} · rtt ${(q.rttMs||0).toFixed(0)}ms · ${q.framing||""} +${q.overhead||0}B`;
+}
+
+// ---- profile switch ----
+let modePending = null;   // profile we asked for, until a snapshot confirms it
+function renderMode(s){
+  if (modePending && s.profile === modePending) modePending = null;
+  const cur = modePending || s.profile;
+  for (const b of document.querySelectorAll("#mode button")){
+    b.classList.toggle("on", b.dataset.p === cur); b.disabled = !!modePending; }
+  const dl = s.download||{};
+  $("mode-note").textContent = modePending ? "switching…"
+    : cur === "max" ? "download unshaped · latency rises when the line is busy"
+    : `download capped at ${mbps(dl.shapedBps)} Mbps · keeps loaded latency near idle`;
+}
+document.getElementById("mode").addEventListener("click", async (e)=>{
+  const b = e.target.closest("button"); if (!b || b.disabled || b.classList.contains("on")) return;
+  modePending = b.dataset.p; for (const x of document.querySelectorAll("#mode button")) x.disabled = true;
+  $("mode-note").textContent = "switching…";
+  try {
+    const r = await fetch("/api/profile", { method:"POST", headers:{ "content-type":"application/json" },
+                                            body: JSON.stringify({ profile: modePending }) });
+    if (!r.ok) throw new Error(await r.text());
+  } catch (err) {
+    modePending = null; for (const x of document.querySelectorAll("#mode button")) x.disabled = false;
+    $("mode-note").textContent = "switch failed: " + String(err.message||err).slice(0,80);
+  }
+  // otherwise the next 1s snapshot confirms the new profile and clears pending
+  setTimeout(()=>{ if (modePending){ modePending = null; for (const x of document.querySelectorAll("#mode button")) x.disabled = false; } }, 5000);
+});
+
+// ---- badges + header ----
+function renderHeader(s){
+  const fair = s.fairness !== "priority", b = [];
+  renderMode(s);
+  b.push(fair ? `<span class="badge">fair split per host</span>`
+              : `<span class="badge prio">priority ${esc(s.priorityHost||"?")}</span>`);
+  if (s.download?.ackFilter) b.push(`<span class="badge">ack-filter</span>`);
+  if ((s.icmpLoss||0)>5) b.push(`<span class="badge">ICMP discarded upstream ${s.icmpLoss}%</span>`);
+  const we = (s.wire?.rxErrors||0)+(s.wire?.txErrors||0);
+  if (we>0) b.push(`<span class="badge bad">eth0 errors ${we}</span>`);
+  $("badges").innerHTML = b.join("");
+  const sy = s.system;
+  $("sys").innerHTML = `<span>up <b>${dur(sy.uptimeSec)}</b></span><span>load <b>${sy.load[0]}</b></span>`
+    + `<span>cpu <b>${sy.tempC.toFixed(0)}°C</b></span><span>mem <b>${sy.memUsedPct}%</b></span>`;
+}
+
+// ---- devices ----
+const VIA = { dhcp:["dhcp","dhcp"], "dhcp-log":["dhcp","dhcp log"], netbios:["netbios","netbios"],
+              vendor:["vendor","oui"], fingerprint:["vendor","fingerprint"], gateway:["prio","gateway"] };
+// One unit (Mb/s) for every device so rows compare at a glance.
+const mb = (b) => !(b>0) ? "0" : b<10e3 ? "<0.01" : b<10e6 ? (b/1e6).toFixed(2) : (b/1e6).toFixed(1);
+const rateCell = (b, scale, colour) => {
+  const on = b > 2000, pct = scale ? Math.min(100, b/scale*100) : 0;
+  return `<div class="rt${on?"":" idle"}" style="${on?`color:${colour}`:""}">${mb(b)}<s>Mb/s</s></div>`
+    + `<div class="bar" title="${pct.toFixed(0)}% of the line"><i style="background:${colour};width:${pct.toFixed(1)}%"></i></div>`;
+};
+// Down as a filled area, up as a line, on a scale shared by every row so a busy
+// device looks busy next to an idle one instead of each row auto-zooming.
+function spark2(d, u, max, live){
+  const n = Math.max(d?.length||0, u?.length||0);
+  if (n < 2) return "";
+  const w = 100, h = 30, X = i => i/(n-1)*w, Y = v => h - Math.min(1,(v||0)/max)*(h-2) - 1;
+  const line = a => (a||[]).map((v,i)=>(i?"L":"M")+X(i).toFixed(1)+" "+Y(v).toFixed(1)).join(" ");
+  const ld = line(d);
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">`
+    + `<path d="${ld} L${w} ${h} L0 ${h}Z" fill="#388bfd" opacity="${live?.28:.12}"/>`
+    + `<path d="${ld}" fill="none" stroke="${live?"#388bfd":"#3a4452"}" stroke-width="1.3" vector-effect="non-scaling-stroke"/>`
+    + `<path d="${line(u)}" fill="none" stroke="${live?"#d29922":"#3a4452"}" stroke-width="1.2" vector-effect="non-scaling-stroke"/></svg>`;
+}
+function devRow(d, s, ctx){
+  const live = d.upBps+d.downBps>2000;
+  const prio = s.fairness==="priority" && s.priorityHost && d.ip===s.priorityHost;
+  const [cls,label] = VIA[d.via] || ["none","unnamed"];
+  const name = d.isGateway ? "gateway" : d.name;
+  const hw = d.vendor && d.vendor !== name ? d.vendor : d.isGateway ? d.vendor
+    : d.randomMac ? "private MAC" : d.via==="vendor" ? "no hostname" : "";
+  const lease = d.noLease ? "no lease" : d.expiry ? "lease "+ago(Math.round(d.expiry-ctx.now)) : "static";
+  const tags = `<span class="tag ${cls}">${label}</span>`
+    + (d.dupMac ? `<span class="tag none" title="Same MAC on another address: one device that changed IP">dup</span>` : "")
+    + (prio ? `<span class="tag prio">priority</span>` : "");
+  const pkD = Math.max(0, ...(d.sparkD||[])), pkU = Math.max(0, ...(d.sparkU||[]));
+  const sub = [d.os?`<span style="color:var(--lat)">${esc(d.os)}</span>`:"", esc(hw), esc(d.ip)].filter(Boolean).join(" · ");
+  const tip = `${d.ip} · ${d.mac||"no MAC"} · ${lease}\nTransferred: ↓ ${bytes(d.downBytes)} · ↑ ${bytes(d.upBytes)}`;
+  return `<div class="dev${live?" live":""}" title="${esc(tip)}">
+    <div class="d-id"><div class="nm">${esc(name)}${tags}</div><div class="sm">${sub}</div></div>
+    <div class="d-dn">${rateCell(d.downBps, ctx.dl, "var(--down)")}</div>
+    <div class="d-up">${rateCell(d.upBps, ctx.ul, "var(--up)")}</div>
+    <div class="d-graph">${spark2(d.sparkD, d.sparkU, ctx.gmax, live)}</div>
+    <div class="d-pk sm">↓ ${mb(pkD)}<br>↑ ${mb(pkU)}</div>
+  </div>`;
+}
+// Sort by a smoothed rate so the busiest device sits on top, without rows
+// swapping every second when two devices are close.
+const devEma = {};
+function renderDevices(s){
+  const devs = s.devices||[], now = Date.now()/1000;
+  for (const d of devs){ const r = d.downBps+d.upBps, e = devEma[d.ip];
+    devEma[d.ip] = e===undefined ? r : e + 0.35*(r-e); }
+  const gmax = Math.max(100e3, ...devs.flatMap(d=>[...(d.sparkD||[]), ...(d.sparkU||[])]));
+  const ctx = { now, gmax, dl: caps.dl || Math.max(peakD, 1e6), ul: caps.ul || Math.max(peakU, 2e5) };
+  const order = (a,b) => { const ea=devEma[a.ip]||0, eb=devEma[b.ip]||0;
+    return (eb>2000)-(ea>2000) || (ea>2000 ? eb-ea : String(a.name).localeCompare(String(b.name))); };
+  const here = devs.filter(d=>d.present!==false).sort(order), gone = devs.filter(d=>d.present===false);
+  const act = devs.filter(d=>d.upBps+d.downBps>2000).length;
+  const sumD = devs.reduce((a,d)=>a+d.downBps,0), sumU = devs.reduce((a,d)=>a+d.upBps,0);
+  $("devcount").innerHTML = `${act} of ${here.length} active · <span style="color:var(--down)">↓ ${mb(sumD)}</span> <span style="color:var(--up)">↑ ${mb(sumU)}</span> Mb/s`;
+  $("devs").innerHTML = here.map(d=>devRow(d,s,ctx)).join("");
+  $("stale").style.display = gone.length ? "" : "none";
+  $("stale-sum").textContent = `${gone.length} stale address${gone.length===1?"":"es"}: no ARP reply, so not on the LAN now`;
+  $("stale-list").innerHTML = gone.map(d=>devRow(d,s,ctx)).join("");
+  const unnamed = here.filter(d=>!d.via).length, priv = here.filter(d=>d.randomMac).length;
+  $("dev-note").textContent = `Rates are 1-second averages from per-host nftables counters; bars show the share of the line's capacity. Hover a row for its MAC, lease and data transferred. `
+    + `Names come from the DHCP hostname, NetBIOS, the dnsmasq log, then the MAC vendor; ${priv} use${priv===1?"s":""} a private MAC with no vendor. `
+    + (unnamed ? `${unnamed} still unidentified.` : `Every present device is identified.`);
+}
+
+// ---- 1Hz full render ----
+function render(s){
+  if (!s || !s.system) return;
+  if (s.fastMs) fastMs = s.fastMs;
+  if (s.history && s.history.down && s.history.down.length > series.down.length)
+  { series = { down:[...s.history.down], up:[...s.history.up], lat:[...s.history.lat] };
+    peakD = Math.max(peakD, ...series.down); peakU = Math.max(peakU, ...series.up); }
+  caps.dl = s.download?.unlimited ? 0 : (s.download?.shapedBps||0);
+  caps.ul = s.upload?.unlimited   ? 0 : (s.upload?.shapedBps||0);
+
+  latStats();
+  renderHeader(s);
+  renderTop(s);
+  drawHist();
+  renderDevices(s);
+  renderAqm(s);
+  const pr = s.probe || {};
+  $("chart-meta").textContent = `Last ${(series.lat.length*fastMs/1000).toFixed(0)}s · latency: ${pr.mode==="udp"?"game-style UDP echo":"TCP handshake (fallback)"} to ${pr.target||"?"} every ${pr.intervalMs||"?"}ms, marked like a game packet · `
+    + `min ${Math.round(L.min)} / max ${Math.round(L.max)} ms · red ticks are failed probes · dashed lines are shaper caps · ${fps} fps`;
+  if (!pollTimer) setStatus("live", true);
+  markDirty();
+}
+
+// ---- transport: WebSocket, with stall detection and polling fallback ----
+let ws=null, pollTimer=null, backoff=500, lastMsg=0;
+function setStatus(txt, ok){ $("live").innerHTML = `<span class="dot${ok?" ok":""}" style="${ok?"":"background:var(--warn)"}"></span>${txt}`; }
+
+// A dropped route (e.g. a VPN capturing the LAN) leaves the socket half-open:
+// readyState stays OPEN and nothing arrives for minutes. Ticks come 20x/sec, so
+// 4s of silence is unambiguous — tear it down rather than waiting for TCP.
+setInterval(()=>{
+  if (ws && ws.readyState===WebSocket.OPEN && lastMsg && Date.now()-lastMsg>4000){
+    setStatus("stalled, reconnecting"); startPolling(); try{ws.close();}catch{}
+  }
+}, 2000);
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden && (!ws||ws.readyState>1)){ backoff=500; connect(); }});
+window.addEventListener("online",()=>{ backoff=500; connect(); });
+
+function startPolling(){ if (pollTimer) return;
+  pollTimer = setInterval(async()=>{ try{ render(await (await fetch("/api/stats")).json()); setStatus("polling"); }
+    catch{ setStatus("offline"); } }, 1000); }
+function stopPolling(){ clearInterval(pollTimer); pollTimer=null; }
+
+function connect(){
+  if (ws && ws.readyState<=1){ try{ws.close();}catch{} }
+  try { ws = new WebSocket((location.protocol==="https:"?"wss:":"ws:")+"//"+location.host+"/ws"); }
+  catch { startPolling(); return; }
+  ws.onopen = ()=>{ backoff=500; lastMsg=Date.now(); stopPolling(); setStatus("live", true); };
+  ws.onmessage = (e)=>{ const d=e.data; lastMsg=Date.now();
+    try {
+      if (d.charCodeAt(0)===91){ const a=JSON.parse(d); onTick(a[1],a[2],a[3]); return; }
+      render(JSON.parse(d));
+    } catch {}
+  };
+  ws.onclose = ()=>{ setStatus("reconnecting"); startPolling();
+    backoff=Math.min(backoff*2,3000); setTimeout(connect,backoff); };
+  ws.onerror = ()=>{ try{ws.close();}catch{} };
+}
+fit($("chart")); fit($("hist"));
+fetch("/api/stats").then(r=>r.json()).then(render).catch(()=>{});
+connect();
+</script>
+</body>
+</html>

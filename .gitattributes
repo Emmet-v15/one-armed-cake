@@ -1,0 +1,4 @@
+# Shell scripts, configs and units run on Linux: a CRLF in a shebang breaks them.
+* text=auto eol=lf
+*.pdf binary
+*.png binary

@@ -1,0 +1,15 @@
+[Unit]
+Description=One-armed CAKE traffic shaper (VDSL2)
+After=network-online.target nftables.service
+Wants=nftables.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/router-shaper start
+ExecStop=/usr/local/sbin/router-shaper stop
+ExecReload=/usr/local/sbin/router-shaper restart
+
+[Install]
+WantedBy=multi-user.target

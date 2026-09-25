@@ -1,0 +1,12 @@
+\begin{tabular}{rl rrr rrr}
+\toprule
+& & \multicolumn{3}{c}{load start (first 1.5\,s)} & \multicolumn{3}{c}{steady load} \\
+\cmidrule(lr){3-5}\cmidrule(lr){6-8}
+flows & marking & median & max & lost & median & p99 & lost \\
+\midrule
+4 & none & 19 (18--20) & 32 (24--43) & 0/375 & 19 (18--19) & 23 (22--35) & 0/1625 \\
+4 & EF & 19 (18--20) & 25 (23--30) & 0/375 & 19 (19--19) & 23 (23--29) & 0/1625 \\
+16 & none & 39 (28--42) & 131 (97--132) & 49/375 & 26 (25--32) & 67 (61--87) & 239/1625 \\
+16 & EF & 19 (18--20) & 24 (22--40) & 0/375 & 19 (19--20) & 23 (22--33) & 0/1625 \\
+\bottomrule
+\end{tabular}
