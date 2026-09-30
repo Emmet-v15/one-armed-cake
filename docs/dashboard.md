@@ -1,12 +1,12 @@
 # Dashboard
 
-A single Bun process (`dashboard/server.ts`) serving one page (`dashboard/index.html`) at `http://<pi>/`. The page is responsive and works on phones.
+A single Bun process (`dashboard/server.ts`) serving one page (`dashboard/index.html`) at `http://<box-address>/`. The page is responsive and works on phones.
 
 ## What it shows
 
-- **Header:** connection state, uptime, load, CPU temperature, memory, the **Gaming / Max throughput** switch, and badges (fairness mode, ack-filter, ICMP discard rate, eth0 errors).
+- **Header:** connection state, uptime, load, CPU temperature (where the hardware reports one), memory, the **Gaming / Max throughput** switch, and badges (fairness mode, ack-filter, ICMP discard rate, interface errors).
 - **Hero tiles:** latency (current, jitter, p95; coloured against a 50 ms budget), download and upload rate with peak and cap.
-- **Stat strip:** CAKE queue delay per direction, CAKE drop rate, probe loss, eth0 wire rate (in plus out, since every byte crosses twice), active devices, tracked connections.
+- **Stat strip:** CAKE queue delay per direction, CAKE drop rate, probe loss, wire rate on `WAN_IF` (in plus out, since every byte crosses twice), active devices, tracked connections.
 - **Latency and throughput chart:** 30 s at 20 Hz on a shared time axis, latency on the left, Mbit/s on the right, with dashed shaper caps, a 50 ms line, and red ticks for lost probes.
 - **Latency spread:** histogram with p50, p95 and p99 markers.
 - **Devices:** sorted by current throughput (smoothed so rows don't jump), with live down/up rates, a bar showing the share of the line in use, a 60 s graph on a scale shared across devices, and 60 s peaks. Hover a row for its MAC, lease and data transferred. Hosts that don't answer ARP are folded into "stale addresses".
@@ -61,6 +61,7 @@ Bun's development error page is disabled, so errors never show source code or st
 | `NETMON_ECHO_HOST` | *(empty)* | reflector hostname; empty means TCP probe only |
 | `NETMON_ECHO_PORT` | `5201` | |
 | `NETMON_PORT` | `80` | HTTP listen port |
-| `NETMON_ROUTER_IP` | `192.168.1.2` | the Pi's own address, excluded from the device list |
+| `NETMON_ROUTER_IP` | address of `WAN_IF` | the box's own address, excluded from the device list |
+| `NETMON_WAN_IF` | `WAN_IF` from `/etc/router-shaper.conf` | interface for the wire counters |
 
 Set these in a systemd drop-in (`/etc/systemd/system/netmon.service.d/*.conf`) so the unit file stays stock.

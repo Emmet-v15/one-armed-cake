@@ -1,6 +1,6 @@
 // Local network monitor for the one-armed CAKE shaper.
 //
-// Two cadences, so the graph streams smoothly without hammering the Pi:
+// Two cadences, so the graph streams smoothly without hammering the box:
 //   FAST (20Hz)  byte counters straight from sysfs + a persistent ping process.
 //                No subprocess per sample. Pushed as a compact array.
 //   SLOW (1Hz)   tc/nft/lease parsing, which does cost subprocesses.
@@ -11,6 +11,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { lookup } from "dns/promises";
+import { networkInterfaces } from "os";
 
 const TC = "/usr/sbin/tc";
 const NFT = "/usr/sbin/nft";
@@ -31,7 +32,6 @@ const ECHO_HOST = process.env.NETMON_ECHO_HOST ?? "";   // re-resolved every 60 
 const ECHO_PORT = Number(process.env.NETMON_ECHO_PORT ?? 5201);
 const ECHO_MS = 100;     // 10/sec, ~1 kB/s each way
 const ECHO_TIMEOUT = 1000;
-const ROUTER_IP = process.env.NETMON_ROUTER_IP ?? "192.168.1.2";
 const CONF = "/etc/router-shaper.conf";
 
 // Read straight from the shaper config rather than hardcoding. The dashboard used
@@ -43,6 +43,19 @@ function confValue(key: string, fallback: string): string {
     const m = readFileSync(CONF, "utf8").match(new RegExp(`^${key}=(\\S+)`, "m"));
     return m ? m[1].replace(/^["']|["']$/g, "") : fallback;
   } catch { return fallback; }
+}
+
+// Network layout comes from the shaper config too, so the dashboard runs on any
+// box the shaper does. The router's own address is read off the interface.
+const WAN_IF = process.env.NETMON_WAN_IF ?? confValue("WAN_IF", "eth0");
+const LAN_SUBNET = confValue("LAN_SUBNET", "192.168.1.0/24");
+const ROUTER_IP = process.env.NETMON_ROUTER_IP ??
+  networkInterfaces()[WAN_IF]?.find((a) => a.family === "IPv4")?.address ?? "";
+const ipNum = (ip: string) => ip.split(".").reduce((n, o) => n * 256 + Number(o), 0);
+function inLan(ip: string): boolean {
+  const [net, bits] = LAN_SUBNET.split("/");
+  const size = 2 ** (32 - Number(bits ?? 32));
+  return Math.floor(ipNum(ip) / size) === Math.floor(ipNum(net) / size);
 }
 
 function currentFairness(): string {
@@ -114,7 +127,7 @@ function push(arr: number[], v: number) {
 // handshakes to the same address succeeded 40/40. The upstream polices ICMP, so
 // a ping-based graph reports timeouts that real traffic never experiences.
 //
-// The probe is also DSCP EF-marked, by an nft rule in `table ip mangle` chain
+// The probe is also DSCP EF-marked, by an nft rule in `table ip one_armed_cake` chain
 // output matching 1.1.1.1:443. That puts it in CAKE's Voice tin, so the graph
 // reports the latency a properly marked realtime app (game, VoIP) actually gets
 // rather than what unmarked bulk traffic sees. Keep the port at 443 or the nft
@@ -437,7 +450,7 @@ async function nameResolverLoop() {
       const arp = arpTable();
       const haveIp = new Set(rows.map((r) => r[2]));
       for (const [ip, a] of Object.entries(arp)) {
-        if (a.mac && !haveIp.has(ip) && ip.startsWith("192.168.1.")) rows.push(["0", a.mac, ip, "*"]);
+        if (a.mac && !haveIp.has(ip) && inLan(ip)) rows.push(["0", a.mac, ip, "*"]);
       }
       const fp = await dhcpFingerprints();
       for (const [, mac, ip, host] of rows) {
@@ -471,7 +484,7 @@ async function nameResolverLoop() {
 }
 
 async function nftSet(name: string) {
-  const out = await sh([NFT, "-j", "list", "set", "ip", "accounting", name]);
+  const out = await sh([NFT, "-j", "list", "set", "ip", "one_armed_cake", name]);
   const m: Record<string, { bytes: number }> = {};
   if (!out) return m;
   try {
@@ -525,11 +538,11 @@ function nread(p: string): number {
   try { return Number(readFileSync(p, "utf8").trim()) || 0; } catch { return 0; }
 }
 
-// eth0 carries BOTH directions on a one-armed router, so its counters are the
+// WAN_IF carries BOTH directions on a one-armed router, so its counters are the
 // "wire" truth. Comparing wire bytes against what ifb-down actually delivered is
 // how the cake-autorate throttling was caught -- surface it permanently.
 function wire() {
-  const s = (f: string) => nread(`/sys/class/net/eth0/statistics/${f}`);
+  const s = (f: string) => nread(`/sys/class/net/${WAN_IF}/statistics/${f}`);
   return {
     rxBps: rate("eth0rx", s("rx_bytes")),
     txBps: rate("eth0tx", s("tx_bytes")),
@@ -548,14 +561,14 @@ function conntrack() {
 function system() {
   const up = lines("/proc/uptime")[0]?.split(" ")[0] ?? "0";
   const load = lines("/proc/loadavg")[0]?.split(" ").slice(0, 3) ?? [];
-  const temp = lines("/sys/class/thermal/thermal_zone0/temp")[0] ?? "0";
+  const temp = lines("/sys/class/thermal/thermal_zone0/temp")[0];   // absent on many PCs and VMs
   const mem = lines("/proc/meminfo");
   const kv = (k: string) => Number(mem.find((l) => l.startsWith(k))?.replace(/\D+/g, "") ?? 0);
   const total = kv("MemTotal"), avail = kv("MemAvailable");
   return {
     uptimeSec: Number(up),
     load,
-    tempC: Number(temp) / 1000,
+    tempC: temp ? Number(temp) / 1000 : null,
     memUsedPct: total ? Math.round(((total - avail) / total) * 100) : 0,
   };
 }
@@ -628,8 +641,8 @@ async function slowTick() {
 
   devices.sort((a, b) => b.downBytes + b.upBytes - (a.downBytes + a.upBytes));
 
-  // No "wire vs delivered" loss figure: on a one-armed router eth0 rx carries
-  // both WAN->Pi download and LAN->Pi upload, so the ratio measures the
+  // No "wire vs delivered" loss figure: on a one-armed router WAN_IF rx carries
+  // both WAN->box download and LAN->box upload, so the ratio measures the
   // traffic mix, not loss. CAKE's own drop counters are the real number.
   const w = wire();
   const probeWin = probeMode === "udp" ? udpWindow : tcpWindow;
@@ -684,7 +697,7 @@ const HTML = await Bun.file(new URL("./index.html", import.meta.url)).text();
 
 server = Bun.serve({
   // Port 80: the unit runs as root, so no privileged-port problem, and the
-  // dashboard is reachable at http://192.168.1.2/ with no port to remember.
+  // dashboard is reachable at http://<router-address>/ with no port to remember.
   port: Number(process.env.NETMON_PORT ?? 80),
   hostname: "0.0.0.0",
   // Never serve Bun's development error page: it shows source and stack to

@@ -523,7 +523,7 @@ function renderHeader(s){
   $("badges").innerHTML = b.join("");
   const sy = s.system;
   $("sys").innerHTML = `<span>up <b>${dur(sy.uptimeSec)}</b></span><span>load <b>${sy.load[0]}</b></span>`
-    + `<span>cpu <b>${sy.tempC.toFixed(0)}°C</b></span><span>mem <b>${sy.memUsedPct}%</b></span>`;
+    + (sy.tempC == null ? "" : `<span>cpu <b>${sy.tempC.toFixed(0)}°C</b></span>`) + `<span>mem <b>${sy.memUsedPct}%</b></span>`;
 }
 
 // ---- devices ----

@@ -3,18 +3,18 @@
 ## Topology
 
 ```
-Internet ── ISP router ──┬── LAN hosts          default gateway = Pi (DHCP from the Pi)
-            (modem, NAT, └── Raspberry Pi       one Ethernet port: eth0
+Internet ── ISP router ──┬── LAN hosts          default gateway = the box (DHCP from the box)
+            (modem, NAT, └── Linux box          one Ethernet port: WAN_IF (eth0 below)
              switch)
 ```
 
-The Pi is not physically between the LAN and the internet. It is another host on the LAN that the other hosts use as their gateway. Every forwarded packet therefore enters and leaves on the same port. That is what "one-armed" means. The Pi masquerades towards the ISP router, which NATs again to the internet (double NAT, which is harmless for typical use).
+The box (a Raspberry Pi on the reference setup; any Linux machine works) is not physically between the LAN and the internet. It is another host on the LAN that the other hosts use as their gateway. Every forwarded packet therefore enters and leaves on the same port. That is what "one-armed" means. The box masquerades towards the ISP router, which NATs again to the internet (double NAT, which is harmless for typical use).
 
 ## Why shape on egress, in both directions
 
 The usual way to shape download on Linux is to redirect *ingress* traffic to an IFB device. On a one-armed NAT router that fails for per-host fairness:
 
-- **tc ingress runs before conntrack reverses NAT.** Every inbound download packet is still addressed to the Pi itself. CAKE cannot tell which LAN host it is for, so `dual-dsthost` sees a single host.
+- **tc ingress runs before conntrack reverses NAT.** Every inbound download packet is still addressed to the box itself. CAKE cannot tell which LAN host it is for, so `dual-dsthost` sees a single host.
 - **On eth0 egress towards the LAN, NAT has been undone.** The destination is the real host.
 
 So both directions are classified on eth0 **egress**:
@@ -30,7 +30,7 @@ eth0 root: prio (bands 3), filters:
 
 ## Why `nat` on the upload side
 
-tc egress runs **after** the netfilter POSTROUTING hook, so by the time an upload packet reaches `ifb-up`, masquerade has already rewritten its source to the Pi's address. We verified this by counting in a postrouting chain at priority 200: 7,600 packets from the router's address, zero from the real host. Without `nat`, `dual-srchost` sees one host for the whole LAN and isolates nothing. With `nat`, CAKE looks up the pre-NAT source in conntrack.
+tc egress runs **after** the netfilter POSTROUTING hook, so by the time an upload packet reaches `ifb-up`, masquerade has already rewritten its source to the box's address. We verified this by counting in a postrouting chain at priority 200: 7,600 packets from the router's address, zero from the real host. Without `nat`, `dual-srchost` sees one host for the whole LAN and isolates nothing. With `nat`, CAKE looks up the pre-NAT source in conntrack.
 
 Download does not need `nat`: inbound NAT is reversed in PREROUTING, long before egress.
 
@@ -49,7 +49,7 @@ In `max`, CAKE still runs on download (flow isolation and statistics) but is nev
 
 Fair queueing normally gives a sparse flow, such as a game's small packets, near-zero queueing delay, because new and sparse flows are served first. That breaks down when **many bulk flows start at the same time**: each one is also "new", and on a slow uplink each quantum takes milliseconds to send. With 16 uploads starting at 1.8 Mbit/s, a game-style probe saw up to 132 ms and 13% loss in the first 1.5 s, all inside CAKE (paper, Tables 1–2).
 
-`GAME_PRIORITY=yes` adds two rules to `table ip mangle chain forward`, where real hosts are visible in both directions:
+`GAME_PRIORITY=yes` adds two rules to the `dscp_mark` chain (a forward hook at mangle priority), where real hosts are visible in both directions:
 
 ```
 ip saddr $LAN meta l4proto udp ip length <= 300                    ip dscp set ef   # upload
@@ -57,6 +57,24 @@ ip daddr $LAN udp sport != 443 ip length <= 1000                    ip dscp set 
 ```
 
 EF maps to CAKE's Voice tin in `diffserv4`, which is served first up to 25% of the link. Past that threshold it loses priority rather than starving others, which bounds the damage of a false match. TCP never matches, and port 443 is excluded on download to keep QUIC data out. `wash` on the upload qdisc clears the mark before it leaves the house.
+
+## Firewall rules
+
+`router-shaper start` also turns on forwarding, turns off ICMP redirects, and creates one nftables table, `table ip one_armed_cake`:
+
+| chain / set | hook | purpose |
+|---|---|---|
+| `postrouting` | nat postrouting | masquerade LAN traffic leaving towards the ISP router |
+| `dscp_mark` | forward, mangle priority | game-packet marking and the optional priority mode |
+| `account` | forward, filter priority | update the `up` and `down` sets: per-host byte counters for the dashboard |
+| `output` | output, mangle priority | mark the dashboard's own probes EF |
+
+Everything is created with `nft add`, which leaves an existing table, set or chain in place, and the rules are then flushed and rewritten from the config. Restarting the shaper therefore keeps the byte counters. The shaper touches no other table, so it coexists with Docker, ufw, firewalld or a host ruleset in `/etc/nftables.conf`. Two caveats:
+
+- A host ruleset that starts with `flush ruleset` deletes this table when it is reloaded. The unit is `PartOf=` and `ReloadPropagatedFrom=` `nftables.service`, so the shaper rebuilds its table whenever that service restarts or reloads.
+- Another firewall's forward chain can still drop routed packets; allow forwarding there.
+
+`router-shaper stop` removes only the qdiscs, so the LAN keeps routing, unshaped. `router-shaper down` also deletes the table and turns forwarding off.
 
 ## Fairness modes
 

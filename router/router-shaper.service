@@ -1,7 +1,15 @@
 [Unit]
-Description=One-armed CAKE traffic shaper (VDSL2)
+Description=one-armed-cake CAKE traffic shaper
+# Ordering only: if the host loads /etc/nftables.conf (which usually starts with
+# `flush ruleset`), that must happen before the shaper creates its own table.
+# Not Wants=: pulling nftables.service in on a host that does not use it would
+# load a default ruleset the admin never asked for.
 After=network-online.target nftables.service
-Wants=nftables.service
+# ...and if nftables.service is restarted or reloaded later, its `flush ruleset`
+# deletes our table (and with it NAT, so the LAN loses internet): rebuild it.
+# Both are no-ops on hosts without nftables.service.
+PartOf=nftables.service
+ReloadPropagatedFrom=nftables.service
 Wants=network-online.target
 
 [Service]

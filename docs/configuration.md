@@ -14,7 +14,7 @@
 | `GAMING_RTT` | `30ms` | Download `rtt` in `gaming`. |
 | `OVERHEAD` | `overhead 34 mpu 68 ptm` | CAKE link-layer compensation. |
 | `ACK` | `yes` | Enable `ack-filter` on upload. |
-| `WAN_IF` | `eth0` | The single interface. |
+| `WAN_IF` | `eth0` | The single interface. The installer sets it from the default route. The dashboard reads it from here too. |
 | `LAN_SUBNET` | `192.168.1.0/24` | Used by the tc filters and the classifier. |
 | `FAIRNESS` | `fair` | `fair` or `priority`. Written by `router-shaper fairness`. |
 | `PRIORITY_HOST` | `192.168.1.100` | Only used with `FAIRNESS=priority`. |
@@ -22,7 +22,7 @@
 
 ## Choosing rates
 
-**Upload.** Set `UL_RATE` about 10% below the upstream sync rate from your modem's status page. Upload is usually the easier direction: the Pi is the sender's first hop, so shaping there is exact.
+**Upload.** Set `UL_RATE` about 10% below the upstream sync rate from your modem's status page. Upload is usually the easier direction: the box is the sender's first hop, so shaping there is exact.
 
 **Download.** Shaping download at the receiving end only works if the cap is below what the line actually delivers, and DSL capacity drifts. Measure rather than guess:
 
@@ -36,8 +36,8 @@ Going further below the knee does not improve latency; it only costs throughput.
 
 ## What it cannot fix
 
-- **The first second of a new download.** A new download's slow-start burst queues at the DSLAM before the Pi sees it. On the reference line that was a p99 of about 120 ms for about 1.5 s, even in `gaming`. Only ISP-side queue management or paced senders fix this.
-- **Traffic that bypasses the Pi**: devices with static gateway settings, or IPv6 if the ISP router advertises it (the Pi does not route IPv6).
+- **The first second of a new download.** A new download's slow-start burst queues at the DSLAM before the box sees it. On the reference line that was a p99 of about 120 ms for about 1.5 s, even in `gaming`. Only ISP-side queue management or paced senders fix this.
+- **Traffic that bypasses the box**: devices with static gateway settings, or IPv6 if the ISP router advertises it (the box does not route IPv6).
 - **Wi-Fi airtime contention** on the ISP router's access point.
 
 ## Commands

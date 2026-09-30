@@ -31,8 +31,8 @@ On a one-armed router each packet crosses the interface four times, so a single 
 
 ```bash
 # on the router, while a trial runs
-sudo tcpdump -i eth0 -tt -nn -e -A -l udp port 5201 > cap.txt
-python3 tools/capan.py cap.txt --client <client-mac> --router <pi-mac> --isp <isp-router-mac>
+sudo tcpdump -i <WAN_IF> -tt -nn -e -A -l udp port 5201 > cap.txt
+python3 tools/capan.py cap.txt --client <client-mac> --router <box-mac> --isp <isp-router-mac>
 ```
 
 `capan.py` reports time in the upload qdisc, time beyond the router (ISP router, line, internet, reflector), and time in the download qdisc, plus where each lost packet disappeared. This is how the paper shows the flow-start losses happen inside CAKE rather than in the ISP router.

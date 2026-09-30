@@ -1,13 +1,13 @@
 # one-armed-cake
 
-**Game-grade latency on a slow DSL line, using a Raspberry Pi that sits *beside* the ISP router, not in front of it.**
+**Game-grade latency on a slow DSL line, using a small Linux box (a Raspberry Pi, an old laptop, a VM) that sits *beside* the ISP router, not in front of it.**
 
-The ISP router on most home connections cannot run modern queue management, so any bulk transfer fills its buffers and every game, call and web page behind it lags. This project turns a Raspberry Pi on one LAN port into a *one-armed* router. The Pi hands out itself as the gateway over DHCP, and shapes both directions with [CAKE](https://man7.org/linux/man-pages/man8/tc-cake.8.html). It comes with a live dashboard and a measurement toolkit. A [paper](paper/paper.pdf) covers what was learned along the way.
+The ISP router on most home connections cannot run modern queue management, so any bulk transfer fills its buffers and every game, call and web page behind it lags. This project turns any Linux machine on one LAN port into a *one-armed* router: no second network port, and no change to the ISP router beyond turning off its DHCP server. The box hands out itself as the gateway over DHCP, and shapes both directions with [CAKE](https://man7.org/linux/man-pages/man8/tc-cake.8.html). It comes with a live dashboard and a measurement toolkit. A [paper](paper/paper.pdf) covers what was learned along the way.
 
 | 4 downloads saturating the line | median latency | p99 latency | throughput |
 |---|---:|---:|---:|
 | ISP router alone (profile `max`) | 165 ms | 229 ms | 4.3 Mbit/s |
-| with the Pi (profile `gaming`) | **18 ms** | **26 ms** | 2.8 Mbit/s |
+| with the shaper (profile `gaming`) | **18 ms** | **26 ms** | 2.8 Mbit/s |
 
 | 16 uploads starting at once | worst latency, first 1.5 s | probes lost |
 |---|---:|---:|
@@ -28,19 +28,20 @@ The ISP router on most home connections cannot run modern queue management, so a
 ## How it works
 
 ```
-Internet ── ISP router (modem, NAT, switch) ──┬── LAN hosts (gateway = Pi, via DHCP from the Pi)
-                                              └── Raspberry Pi, eth0 only
-                                                   eth0 egress ─┬─ dst in LAN → ifb-down: CAKE dual-dsthost ingress
-                                                                └─ otherwise   → ifb-up:   CAKE dual-srchost nat ack-filter
+Internet ── ISP router (modem, NAT, switch) ──┬── LAN hosts (gateway = the box, via DHCP from the box)
+                                              └── Linux box, one port (WAN_IF, e.g. eth0)
+                                                   WAN_IF egress ─┬─ dst in LAN → ifb-down: CAKE dual-dsthost ingress
+                                                                  └─ otherwise   → ifb-up:   CAKE dual-srchost nat ack-filter
 ```
 
-Every forwarded packet enters and leaves the Pi on the same port. The ingress hook would see download traffic *before* NAT is reversed, when every packet is still addressed to the router, so both directions are classified on **egress** instead. On the upload side the source has already been masqueraded by then, which is why CAKE's `nat` option is required there. Details: [docs/architecture.md](docs/architecture.md).
+Every forwarded packet enters and leaves the box on the same port. The ingress hook would see download traffic *before* NAT is reversed, when every packet is still addressed to the router, so both directions are classified on **egress** instead. On the upload side the source has already been masqueraded by then, which is why CAKE's `nat` option is required there. Details: [docs/architecture.md](docs/architecture.md).
 
 ## Repository layout
 
 | path | contents |
 |---|---|
-| [`router/`](router/) | `router-shaper` script and config, systemd unit, nftables ruleset, dnsmasq, sysctl and journald settings |
+| [`install.sh`](install.sh) | installer: detects the network, checks the kernel, installs and starts everything |
+| [`router/`](router/) | `router-shaper` script and config, systemd unit, dnsmasq template, sysctl and journald settings |
 | [`dashboard/`](dashboard/) | Bun server and single-page UI (`server.ts`, `index.html`), systemd unit |
 | [`echo/`](echo/) | UDP echo reflector for the latency probe, systemd unit |
 | [`tools/`](tools/) | `exp.py` experiment driver, `labsrv.py` load server, `capan.py` capture analyser, `analyze.py` tables and figures |
@@ -50,17 +51,15 @@ Every forwarded packet enters and leaves the Pi on the same port. The ingress ho
 
 ## Quick start
 
-Requirements: a Linux box with one Ethernet port (tested on a Raspberry Pi 4B, Debian 13, kernel 6.18), `tc` with `sch_cake`, `nftables`, `dnsmasq`, and [Bun](https://bun.sh) for the dashboard.
+You need an always-on Linux machine with a **wired** connection to the ISP router: a Raspberry Pi, an old laptop, a mini PC, a home server, or a VM with bridged networking. It must run a Debian-family distribution (Raspberry Pi OS, Debian, Ubuntu) with a kernel that includes CAKE (mainline since 4.19; WSL's kernel does not), and [Bun](https://bun.sh) for the dashboard. The shaper keeps its firewall rules in its own nftables table, so it coexists with Docker or an existing host firewall. Tested on a Raspberry Pi 4B running Debian 13.
 
 ```bash
-sudo install -m755 router/router-shaper /usr/local/sbin/
-sudo install -m644 router/router-shaper.conf.example /etc/router-shaper.conf   # then edit rates
-sudo install -m644 router/router-shaper.service /etc/systemd/system/
-sudo install -m644 router/nftables.conf /etc/nftables.conf
-sudo systemctl enable --now nftables router-shaper
+git clone https://github.com/Emmet-v15/one-armed-cake && cd one-armed-cake
+sudo ./install.sh --dry-run --down 45mbit --up 9mbit    # see what it would do
+sudo ./install.sh --down 45mbit --up 9mbit              # ~90% of a speed test; 85% on DSL
 ```
 
-Then set up DHCP so clients use the Pi as their gateway, and **turn off the ISP router's DHCP server**. The full walkthrough, including the dashboard and the reflector, is in [docs/installation.md](docs/installation.md).
+That installs and starts the shaper and dashboard, but changes nothing for other devices yet. Try it on one device by setting that device's gateway to the box's address by hand. When it works, rerun with `--dhcp` so every device uses it, and **turn off the ISP router's DHCP server**. `sudo ./install.sh --uninstall` reverses it. Details, manual steps and Windows options: [docs/installation.md](docs/installation.md).
 
 ```bash
 router-shaper status              # qdisc statistics for both directions
@@ -69,7 +68,7 @@ router-shaper profile gaming      # or: max
 
 ## Documentation
 
-- [Installation](docs/installation.md): router, DHCP, dashboard, reflector
+- [Installation](docs/installation.md): hardware, the installer, trying it on one device, DHCP, the reflector, Windows options
 - [Architecture](docs/architecture.md): why egress, why `nat`, the classifier, the design decisions
 - [Configuration](docs/configuration.md): every setting in `router-shaper.conf`, and how to pick rates
 - [Dashboard](docs/dashboard.md): UI, HTTP/WebSocket API, latency probe, device naming
