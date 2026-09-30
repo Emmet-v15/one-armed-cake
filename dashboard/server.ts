@@ -154,10 +154,17 @@ function tcpProbe(): Promise<number> {
 
 let probeMode: "udp" | "tcp" = "udp";
 let lastEchoReply = Date.now();   // 5 s grace at startup before falling back
-const probeWindow: boolean[] = [];      // last 600 UDP probes, true = answered
+// Loss is kept per probe type: while the UDP reflector is unreachable its window
+// is all misses, and reporting that during TCP fallback shows 100% loss on a
+// path that is working.
+const udpWindow: boolean[] = [];        // last 600 UDP probes, true = answered
+const tcpWindow: boolean[] = [];        // last 150 TCP probes (1 min at 400 ms)
+function noteWindow(w: boolean[], ok: boolean, max: number) {
+  w.push(ok);
+  if (w.length > max) w.shift();
+}
 function noteProbe(ok: boolean) {
-  probeWindow.push(ok);
-  if (probeWindow.length > 600) probeWindow.shift();
+  noteWindow(udpWindow, ok, 600);
 }
 
 async function echoLoop() {
@@ -213,6 +220,7 @@ async function latencyLoop() {
     if (probeMode === "tcp") {
       try { lastLatency = await tcpProbe(); }
       catch { lastLatency = -1; }
+      noteWindow(tcpWindow, lastLatency >= 0, 150);
     }
     await Bun.sleep(PROBE_MS);
   }
@@ -624,6 +632,7 @@ async function slowTick() {
   // both WAN->Pi download and LAN->Pi upload, so the ratio measures the
   // traffic mix, not loss. CAKE's own drop counters are the real number.
   const w = wire();
+  const probeWin = probeMode === "udp" ? udpWindow : tcpWindow;
 
   snapshot = {
     type: "full", ts: Date.now(),
@@ -634,8 +643,8 @@ async function slowTick() {
       mode: probeMode,
       target: probeMode === "udp" ? `${ECHO_HOST}:${ECHO_PORT} UDP` : `${PROBE_HOST}:${PROBE_PORT} TCP`,
       intervalMs: probeMode === "udp" ? ECHO_MS : PROBE_MS,
-      lossPct: probeWindow.length ? (probeWindow.filter((x) => !x).length / probeWindow.length) * 100 : 0,
-      samples: probeWindow.length,
+      lossPct: probeWin.length ? (probeWin.filter((x) => !x).length / probeWin.length) * 100 : 0,
+      samples: probeWin.length,
     },
     icmpLoss,
     fairness: currentFairness(),

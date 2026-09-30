@@ -35,7 +35,20 @@ Keep the ISP router's admin page reachable from a device with a static IP, or kn
 
 ## SD-card wear
 
-The Pi mostly *reads* (sysfs counters, `tc` statistics), and reads cause no wear. With the journal in RAM and `/tmp` on tmpfs, steady-state writes on the reference box were about 2.2 MiB/hour (~19 GB/year), well within any card's endurance. Swap on Raspberry Pi OS and Debian images is usually zram (RAM), not the card.
+The Pi mostly *reads* (sysfs counters, `tc` statistics), and reads cause no wear. Swap on Raspberry Pi OS and Debian images is usually zram (RAM), not the card. With the journal in RAM and `/tmp` on tmpfs, what still reaches the card on the reference box (measured from `/proc/diskstats` over a quiet 10-minute window, plus one run of each daily job):
+
+| Source | Per year | Notes |
+|---|---|---|
+| DHCP lease file | together ~5.4 GB with a 1 h lease (measured); the split between the two is estimated | Rewritten on every renewal; each rewrite costs an ext4 journal commit (tens of KB for a 200-byte file). The example uses 12 h, which cuts this about twelvefold. The dashboard takes presence from ARP, so lease length does not affect it. |
+| `systemd-timesyncd` clock file | (see above) | Touched on every sync so a Pi without a real-time clock boots with roughly the right time. Leave it. |
+| `man-db.timer` | ~1.3 GB | Masked in the install steps. |
+| logrotate, tmpfiles, dpkg backup | < 0.1 GB | |
+
+To measure your own box, compare field 10 (sectors written) of the `mmcblk0` line in `/proc/diskstats` across a window in which you are not logged in, since an SSH session writes too.
+
+```bash
+awk '$3=="mmcblk0"{print $10*512/1e6 " MB written since boot"}' /proc/diskstats
+```
 
 ## IPv6
 

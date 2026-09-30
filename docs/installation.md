@@ -55,14 +55,18 @@ Then **turn off the ISP router's DHCP server**. If both answer, clients get whic
 sudo nmap --script broadcast-dhcp-discover -e eth0   # run from another Linux host
 ```
 
-Clients move over as their leases renew (1 hour in the example). Rebooting the ISP router forces Wi-Fi clients to reconnect immediately.
+Clients move over when the leases they hold from the ISP router come up for renewal. Rebooting the ISP router forces Wi-Fi clients to reconnect immediately.
 
 ## 5. Optional: reduce SD-card writes
 
 ```bash
 sudo install -Dm644 router/journald-volatile.conf /etc/systemd/journald.conf.d/10-volatile.conf
 echo 'tmpfs /tmp tmpfs defaults,noatime,nosuid,nodev,size=512M 0 0' | sudo tee -a /etc/fstab
+sudo systemctl mask man-db.timer                   # daily man-page index rebuild, ~3.5 MB per run
+echo 'man-db man-db/auto-update boolean false' | sudo debconf-set-selections
 ```
+
+See [operations](operations.md#sd-card-wear) for what is left.
 
 ## 6. Dashboard
 

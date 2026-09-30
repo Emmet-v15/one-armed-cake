@@ -16,7 +16,8 @@ local-service
 
 # --- DHCP ---
 # Pool leaves .1-.19 free for statics (.1 Hub, .2 Pi)
-dhcp-range=192.168.1.20,192.168.1.250,1h
+# 12h, not 1h: every renewal rewrites the lease file on the SD card.
+dhcp-range=192.168.1.20,192.168.1.250,12h
 # THE KEY: hand every client the Pi as its default gateway
 dhcp-option=option:router,192.168.1.2
 dhcp-option=option:dns-server,192.168.1.2
