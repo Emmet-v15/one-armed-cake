@@ -44,6 +44,7 @@ Going further below the knee does not improve latency; it only costs throughput.
 
 ```
 router-shaper start | stop | restart     build or tear down qdiscs and classifier
+router-shaper down                       stop, then also remove NAT/forwarding (no longer a router)
 router-shaper status                     per-direction CAKE statistics
 router-shaper show                       one-line summary of the config
 router-shaper profile gaming | max       switch live (tc qdisc change)

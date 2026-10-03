@@ -39,6 +39,7 @@ It works out the interface, the box's address, the LAN subnet and the ISP router
 | `--iface IF` | use this interface instead of the one with the default route |
 | `--port N` | dashboard port |
 | `--no-dashboard` | shaper only |
+| `--low-writes` / `--no-low-writes` | force or skip the SD-card write reductions (default: only when `/` is on an SD card) |
 | `--dry-run` | print what would happen |
 | `--uninstall` | stop and remove everything except the config |
 

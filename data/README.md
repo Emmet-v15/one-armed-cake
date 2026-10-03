@@ -28,6 +28,8 @@ Line: VDSL2 (PTM), ~5.9 Mbit/s down / 2.0 Mbit/s up sync; upload capped at 1800 
 
 Latencies are probe round-trip times in milliseconds. `n` is probes sent in the window; `lost` is probes with no echo by the end of the trial.
 
+Upload records also carry `wire_up_mbps`, an upload-rate field written by the version of `exp.py` used for these runs. The current `exp.py` does not write it and `analyze.py` does not read it; no table or figure depends on it.
+
 ## Condition names
 
 - `up{N}-{none|ef}`: N upload streams, game-packet classifier off or on.

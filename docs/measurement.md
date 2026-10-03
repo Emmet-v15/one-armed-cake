@@ -5,7 +5,7 @@ Everything in the paper can be re-run with the tools in `tools/`.
 ## Setup
 
 - A **reflector** you control: a server running `echo/echo-server.py` (UDP 5201) and, during experiments, `tools/labsrv.py` (TCP 5201, upload sink). Open both **to your home IP only**.
-- A wired **client** on the LAN with Python 3 and curl.
+- A wired **client** on the LAN with Python 3, curl and an ssh client. `tools/analyze.py` also needs `matplotlib` (`pip install matplotlib`); the other tools use only the standard library.
 - ssh access from the client to the router (`ROUTER_SSH`, key-based, passwordless `sudo` for `tc`, `nft` and `router-shaper`) and to the reflector (`REFLECTOR_SSH`).
 - Copy `tools/labsrv.py` to `/tmp/labsrv.py` on the reflector.
 
@@ -16,7 +16,7 @@ python tools/exp.py download --reps 3      # 6 conditions: download cap sweep, 4
 python tools/analyze.py                    # tables -> paper/generated, figures -> paper/figures
 ```
 
-The driver switches marking and caps on the router between conditions, and restores the configured profile when it finishes.
+The driver switches marking and caps on the router between conditions (marking off = `nft flush chain ip one_armed_cake dscp_mark`, marking on = `router-shaper fairness fair`, caps via `tc qdisc change`), and restores the configured profile when it finishes.
 
 ## Trial design
 
