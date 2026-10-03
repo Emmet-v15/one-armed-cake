@@ -104,13 +104,13 @@ the shaper rate continuously from ICMP round-trip measurements.
 \section{System Design}\label{sec:design}
 \begin{figure}[t]
 \centering
-\begin{tikzpicture}[node distance=6mm and 9mm, every node/.style={font=\scriptsize},
+\begin{tikzpicture}[node distance=6mm and 6mm, every node/.style={font=\scriptsize},
   box/.style={draw,rounded corners=2pt,minimum height=6mm,align=center,fill=gray!8}]
 \node[box] (isp) {ISP router\\(VDSL2 modem, NAT)};
 \node[box,right=of isp] (sw) {LAN switch\\(in ISP router)};
-\node[box,above right=4mm and 7mm of sw] (pi) {Raspberry Pi\\eth0 only};
-\node[box,below right=4mm and 7mm of sw] (pc) {LAN hosts\\(gateway = Pi)};
-\node[left=4mm of isp] (inet) {Internet};
+\node[box,above right=4mm and 5mm of sw] (pi) {Raspberry Pi\\eth0 only};
+\node[box,below right=4mm and 5mm of sw] (pc) {LAN hosts\\(gateway = Pi)};
+\node[above=4mm of isp] (inet) {Internet};
 \draw[-{Latex}] (inet) -- (isp);
 \draw (isp) -- (sw);
 \draw[{Latex}-{Latex},thick] (sw) -- node[above left=-1mm,font=\tiny]{every packet twice} (pi);
@@ -121,8 +121,8 @@ the shaper rate continuously from ICMP round-trip measurements.
 \begin{tikzpicture}[node distance=3mm and 4mm, every node/.style={font=\scriptsize},
   box/.style={draw,rounded corners=2pt,minimum height=5mm,align=center,fill=gray!8}]
 \node[box] (e) {eth0 egress\\\texttt{prio} root + u32};
-\node[box,above right=1mm and 6mm of e] (up) {\texttt{ifb-up}: CAKE\\dual-srchost \textbf{nat}, ack-filter};
-\node[box,below right=1mm and 6mm of e] (dn) {\texttt{ifb-down}: CAKE\\dual-dsthost, ingress};
+\node[box,above right=1mm and 12mm of e] (up) {\texttt{ifb-up}: CAKE\\dual-srchost \textbf{nat}, ack-filter};
+\node[box,below right=1mm and 12mm of e] (dn) {\texttt{ifb-down}: CAKE\\dual-dsthost, ingress};
 \draw[-{Latex}] (e) -- node[above,font=\tiny,sloped]{dst $\notin$ LAN} (up);
 \draw[-{Latex}] (e) -- node[below,font=\tiny,sloped]{dst $\in$ LAN} (dn);
 \end{tikzpicture}
@@ -270,7 +270,7 @@ tin, which is served before Best Effort, and the effect disappears.
 \subsection{Download: steady state versus flow start}\label{sec:download}
 
 \begin{table*}[t]
-\centering\small
+\centering\small\setlength{\tabcolsep}{4.5pt}
 \input{generated/table-download.tex}
 \caption{Probe round trip (ms) under 4-stream download, by download cap (wire
 rate) and CAKE \texttt{rtt}. Goodput is averaged over the whole 8\,s load period,
