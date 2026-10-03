@@ -1,6 +1,17 @@
 # one-armed-cake
 
+[![CI](https://github.com/Emmet-v15/one-armed-cake/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Emmet-v15/one-armed-cake/actions/workflows/ci.yml)
+
 **Game-grade latency on a slow DSL line, using a small Linux box (a Raspberry Pi, an old laptop, a VM) that sits *beside* the ISP router, not in front of it.**
+
+> **In 30 seconds**
+>
+> - **Problem:** on a ~5.9/2.0 Mbit/s VDSL2 line, any bulk transfer filled the ISP router's buffers. Under a 4-stream download a game-style probe saw a median of 165 ms (p99 229 ms). The ISP router could not be replaced or reprogrammed.
+> - **Result:** with the shaper, the same load gave a median of **18 ms** (p99 **26 ms**), at the cost of throughput (2.8 vs 4.3 Mbit/s). When 16 uploads started at once, a small-UDP classifier took the worst-case probe from 97–132 ms with 13% loss (49/375) to **22–40 ms with no loss**.
+> - **How:** a Linux box on one LAN port becomes every device's gateway over DHCP and shapes both directions with CAKE on *egress, after NAT*, which is what makes per-device fairness work through a single port. Includes an installer, a live dashboard, an experiment driver, the raw data and a [paper](paper/paper.pdf).
+> - **Limitations:** one line, one day. One VDSL2 line, one client, one reflector, measured over one day; rates and thresholds were tuned for that line.
+> - **Authorship:** design, measurement and verification by Emmet; implementation (code, docs, paper text) AI-assisted with Claude ([details](#authorship)).
+> - **Stack:** Linux `tc`/CAKE, nftables, Bash, systemd, TypeScript on Bun, Python, LaTeX.
 
 The ISP router on most home connections cannot run modern queue management, so any bulk transfer fills its buffers and every game, call and web page behind it lags. This project turns any Linux machine on one LAN port into a *one-armed* router: no second network port, and no change to the ISP router beyond turning off its DHCP server. The box hands out itself as the gateway over DHCP, and shapes both directions with [CAKE](https://man7.org/linux/man-pages/man8/tc-cake.8.html). It comes with a live dashboard and a measurement toolkit. A [paper](paper/paper.pdf) covers what was learned along the way.
 
@@ -14,7 +25,7 @@ The ISP router on most home connections cannot run modern queue management, so a
 | fair queueing alone | 97–132 ms | 13% |
 | + game-packet classifier | **22–40 ms** | **0** |
 
-*Game-style 50 Hz UDP probe to a reflector with 16 ms idle RTT; VDSL2 at ~5.9/2.0 Mbit/s. Ranges are min–max over repeated, interleaved trials. See [the paper](paper/paper.pdf) for method and limitations.*
+*Game-style 50 Hz UDP probe to a reflector with 15.9 ms median idle RTT; VDSL2 at ~5.9/2.0 Mbit/s. Ranges are min–max over repeated, interleaved trials. See [the paper](paper/paper.pdf) for method and limitations.*
 
 ## Features
 
@@ -88,6 +99,15 @@ router-shaper profile gaming      # or: max
 ## Limitations
 
 Results come from one line, one client and one reflector, measured over one day. The thresholds (download cap, UDP size limits) were tuned for this line; re-measure on yours with `tools/exp.py`. See the paper's limitations section.
+
+## Authorship
+
+- **Design, measurement and verification:** Emmet. The measurements were taken on the testbed described in the paper.
+- **Implementation:** AI-assisted. The shaper script, installer, dashboard, experiment and analysis tools, these docs and the paper's prose were written with the assistance of an AI coding assistant (Claude, Anthropic), as the paper's acknowledgment also states.
+
+## Development
+
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the checks that exist; there is no unit-test suite. It syntax-checks the shell scripts and runs ShellCheck at error severity, byte-compiles the Python tools, bundles the dashboard with Bun to catch TypeScript syntax errors, and regenerates `paper/generated/` from `data/` with `tools/analyze.py`, failing if any committed table or number differs. To build the paper locally: `cd paper && latexmk -pdf paper.tex`.
 
 ## License
 
