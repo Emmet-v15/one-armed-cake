@@ -1,0 +1,42 @@
+# Only the checks this repo actually has: syntax and lint for the scripts, and
+# a reproducibility check that the committed tables come from the raw data.
+# There is no unit-test suite, and nothing here exercises tc/nftables.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shell syntax and ShellCheck (errors only)
+        run: |
+          bash -n install.sh router/router-shaper
+          shellcheck --version
+          shellcheck -S error install.sh router/router-shaper
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Python tools compile
+        run: python -m py_compile tools/*.py echo/*.py
+
+      - name: Tables and numbers regenerate from data/
+        run: |
+          pip install --quiet matplotlib
+          python tools/analyze.py
+          # Figures embed timestamps, so only the text outputs are compared.
+          git diff --exit-code -- paper/generated
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Dashboard bundles
+        run: bun build dashboard/server.ts --target=bun --outdir="$RUNNER_TEMP/bun-out"
