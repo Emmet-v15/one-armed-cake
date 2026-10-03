@@ -32,8 +32,8 @@ ap.add_argument("--isp", required=True, help="MAC of the ISP router / gateway")
 ap.add_argument("--load-start", type=float, default=2.0, help="seconds from first probe to load start")
 ap.add_argument("--start-window", type=float, default=1.5)
 args = ap.parse_args()
-PC, PI, HUB = args.client.lower(), args.router.lower(), args.isp.lower()
-LEG = {(PC, PI): "A", (PI, HUB): "B", (HUB, PI): "C", (PI, PC): "D"}
+CLIENT, ROUTER, ISP = args.client.lower(), args.router.lower(), args.isp.lower()
+LEG = {(CLIENT, ROUTER): "A", (ROUTER, ISP): "B", (ISP, ROUTER): "C", (ROUTER, CLIENT): "D"}
 
 hdr = re.compile(r"^(\d+\.\d+) ([0-9a-f:]{17}) > ([0-9a-f:]{17}),")
 ev: dict = collections.defaultdict(dict)

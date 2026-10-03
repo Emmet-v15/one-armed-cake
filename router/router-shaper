@@ -105,7 +105,7 @@ apply_fairness() {
     # start at once, every one of them is also "new", and a game packet takes
     # turns with all of them. Measured 2026-09-24, 16 uploads starting together,
     # 50 Hz UDP probe: 92 ms spikes and 19 lost packets, all inside CAKE's upload
-    # queue (the Hub and line stayed flat at 15.6 ms). Marked EF: 24 ms max, 0 lost.
+    # queue (the ISP router and line stayed flat at 15.6 ms). Marked EF: 24 ms max, 0 lost.
     # Small UDP only, so TCP bulk and QUIC data never match; Voice is capped at
     # 25% of the link by CAKE, so a false match can only lose its own priority.
     if [ "$GAME_PRIORITY" = "yes" ]; then
@@ -144,7 +144,7 @@ start() {
     # 2) dst is a LAN host => this is DOWNLOAD being delivered
     $TC filter add dev "$WAN_IF" parent 1: protocol ip prio 2 u32 \
         match ip dst "$LAN_SUBNET" action mirred egress redirect dev ifb-down
-    # 3) anything else => UPLOAD heading to the Hub
+    # 3) anything else => UPLOAD heading to the ISP router
     $TC filter add dev "$WAN_IF" parent 1: protocol ip prio 3 u32 \
         match u32 0 0 action mirred egress redirect dev ifb-up
 
@@ -192,7 +192,8 @@ case "$1" in
         esac
         sed -i "s/^PROFILE=.*/PROFILE=$want/" "$CONF"
         # cake-autorate must not run in max: it would immediately reimpose a cap.
-        # It is disabled anyway (it cost ~30% throughput on this line, see conf).
+        # It is not installed by default (it cost ~30% throughput on this line; see
+        # the paper, "Pilot observations").
         if [ "$want" = "max" ]; then
             systemctl stop cake-autorate 2>/dev/null || true
         fi

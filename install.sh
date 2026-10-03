@@ -129,7 +129,7 @@ fi
 if nft list table ip accounting >/dev/null 2>&1; then
     warn "found tables from an older install (ip nat / ip mangle / ip accounting in /etc/nftables.conf).
          router-shaper now keeps everything in 'table ip one_armed_cake'; remove the old ones from
-         /etc/nftables.conf so rules are not applied twice. See docs/operations.md."
+         /etc/nftables.conf so rules are not applied twice. See docs/installation.md (Upgrading)."
 fi
 run systemctl daemon-reload
 run sysctl -q -p /etc/sysctl.d/90-one-armed-cake.conf
