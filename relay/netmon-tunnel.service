@@ -1,0 +1,35 @@
+# Runs on the ROUTER. Keeps a reverse SSH tunnel to the relay server open, so
+# the dashboard's read-only listener (127.0.0.1:LOCAL_PORT on the router)
+# appears at 127.0.0.1:REMOTE_PORT on the server. Outbound only: nothing on the
+# home network is opened to the internet, and it survives home IP changes.
+#
+# /etc/netmon-tunnel/env:
+#   TUNNEL_TARGET=netmon-tunnel@relay.example.com
+#   LOCAL_PORT=8081
+#   REMOTE_PORT=18081
+# plus /etc/netmon-tunnel/id_ed25519 and known_hosts (see docs/public.md).
+[Unit]
+Description=one-armed-cake reverse tunnel to the public relay
+After=network-online.target netmon.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/netmon-tunnel/env
+# Compression: the stream is JSON numbers, which compress several times over.
+# IPQoS cs1: CAKE's Bulk tin, so viewers can never delay a game packet.
+# UpdateHostKeys=no and a fixed known_hosts: no writes to the SD card.
+ExecStart=/usr/bin/ssh -N -T \
+    -i /etc/netmon-tunnel/id_ed25519 \
+    -o UserKnownHostsFile=/etc/netmon-tunnel/known_hosts \
+    -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+    -o BatchMode=yes -o ExitOnForwardFailure=yes \
+    -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+    -o Compression=yes -o IPQoS=cs1 \
+    -R 127.0.0.1:${REMOTE_PORT}:127.0.0.1:${LOCAL_PORT} \
+    ${TUNNEL_TARGET}
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

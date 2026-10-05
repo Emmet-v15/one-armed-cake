@@ -488,9 +488,10 @@ function renderMode(s){
   if (modePending && s.profile === modePending) modePending = null;
   const cur = modePending || s.profile;
   for (const b of document.querySelectorAll("#mode button")){
-    b.classList.toggle("on", b.dataset.p === cur); b.disabled = !!modePending; }
+    b.classList.toggle("on", b.dataset.p === cur); b.disabled = !!modePending || !!s.readOnly; }
   const dl = s.download||{};
-  $("mode-note").textContent = modePending ? "switching…"
+  $("mode-note").textContent = s.readOnly ? `read-only view · ${cur === "max" ? "download unshaped" : `download capped at ${mbps(dl.shapedBps)} Mbps`}`
+    : modePending ? "switching…"
     : cur === "max" ? "download unshaped · latency rises when the line is busy"
     : `download capped at ${mbps(dl.shapedBps)} Mbps · keeps loaded latency near idle`;
 }
@@ -557,12 +558,12 @@ function devRow(d, s, ctx){
   const hw = d.vendor && d.vendor !== name ? d.vendor : d.isGateway ? d.vendor
     : d.randomMac ? "private MAC" : d.via==="vendor" ? "no hostname" : "";
   const lease = d.noLease ? "no lease" : d.expiry ? "lease "+ago(Math.round(d.expiry-ctx.now)) : "static";
-  const tags = `<span class="tag ${cls}">${label}</span>`
+  const tags = s.readOnly ? "" : `<span class="tag ${cls}">${label}</span>`
     + (d.dupMac ? `<span class="tag none" title="Same MAC on another address: one device that changed IP">dup</span>` : "")
     + (prio ? `<span class="tag prio">priority</span>` : "");
   const pkD = Math.max(0, ...(d.sparkD||[])), pkU = Math.max(0, ...(d.sparkU||[]));
   const sub = [d.os?`<span style="color:var(--lat)">${esc(d.os)}</span>`:"", esc(hw), esc(d.ip)].filter(Boolean).join(" · ");
-  const tip = `${d.ip} · ${d.mac||"no MAC"} · ${lease}\nTransferred: ↓ ${bytes(d.downBytes)} · ↑ ${bytes(d.upBytes)}`;
+  const tip = s.readOnly ? `Transferred: ↓ ${bytes(d.downBytes)} · ↑ ${bytes(d.upBytes)}` : `${d.ip} ·${d.mac||"no MAC"} · ${lease}\nTransferred: ↓ ${bytes(d.downBytes)} · ↑ ${bytes(d.upBytes)}`;
   return `<div class="dev${live?" live":""}" title="${esc(tip)}">
     <div class="d-id"><div class="nm">${esc(name)}${tags}</div><div class="sm">${sub}</div></div>
     <div class="d-dn">${rateCell(d.downBps, ctx.dl, "var(--down)")}</div>
@@ -591,6 +592,8 @@ function renderDevices(s){
   $("stale-sum").textContent = `${gone.length} stale address${gone.length===1?"":"es"}: no ARP reply, so not on the LAN now`;
   $("stale-list").innerHTML = gone.map(d=>devRow(d,s,ctx)).join("");
   const unnamed = here.filter(d=>!d.via).length, priv = here.filter(d=>d.randomMac).length;
+  if (s.readOnly) { $("dev-note").textContent = "Rates are 1-second averages from per-host counters; bars show the share of the line's capacity. "
+    + "This public view hides device names and addresses: each device is shown by a random ID that changes when the dashboard restarts."; return; }
   $("dev-note").textContent = `Rates are 1-second averages from per-host nftables counters; bars show the share of the line's capacity. Hover a row for its MAC, lease and data transferred. `
     + `Names come from the DHCP hostname, NetBIOS, the dnsmasq log, then the MAC vendor; ${priv} use${priv===1?"s":""} a private MAC with no vendor. `
     + (unnamed ? `${unnamed} still unidentified.` : `Every present device is identified.`);

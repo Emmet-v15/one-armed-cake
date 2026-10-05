@@ -55,6 +55,7 @@ Every forwarded packet enters and leaves the box on the same port. The ingress h
 | [`router/`](router/) | `router-shaper` script and config, systemd unit, dnsmasq template, sysctl and journald settings |
 | [`dashboard/`](dashboard/) | Bun server and single-page UI (`server.ts`, `index.html`), systemd unit |
 | [`echo/`](echo/) | UDP echo reflector for the latency probe, systemd unit |
+| [`relay/`](relay/) | optional public read-only view: reverse-tunnel unit for the router, fan-out relay for a server |
 | [`tools/`](tools/) | `exp.py` experiment driver, `labsrv.py` load server, `capan.py` capture analyser, `analyze.py` tables and figures |
 | [`data/`](data/) | raw per-trial results (JSON lines) and a data dictionary |
 | [`paper/`](paper/) | LaTeX source and PDF |
@@ -85,6 +86,7 @@ router-shaper profile gaming      # or: max
 - [Dashboard](docs/dashboard.md): UI, HTTP/WebSocket API, latency probe, device naming
 - [Measurement](docs/measurement.md): running the experiments, localizing delay, pitfalls
 - [Operations](docs/operations.md): profiles, troubleshooting, recovery, SD-card wear
+- [Public view](docs/public.md): publishing a read-only, anonymized dashboard on your own domain
 - [Paper](paper/paper.pdf): *Fair Queueing Is Not Enough at Flow Start* ([source](paper/paper.tex))
 
 ## Findings in brief

@@ -33,6 +33,10 @@ const ECHO_PORT = Number(process.env.NETMON_ECHO_PORT ?? 5201);
 const ECHO_MS = 100;     // 10/sec, ~1 kB/s each way
 const ECHO_TIMEOUT = 1000;
 const CONF = "/etc/router-shaper.conf";
+// Optional second listener for a public, read-only view, published through a
+// tunnel and a relay (see relay/ and docs/public.md). Bound to 127.0.0.1 so the
+// only way in is the tunnel; 0 disables it.
+const PUBLIC_PORT = Number(process.env.NETMON_PUBLIC_PORT ?? 0);
 
 // Read straight from the shaper config rather than hardcoding. The dashboard used
 // to hardcode 192.168.1.128 as "priority", so it kept labelling that host
@@ -116,6 +120,7 @@ const devHistory = new Map<string, { d: number[]; u: number[] }>();
 let lastLatency = -1;
 let snapshot: any = null;   // broadcast every 1s, no history
 let server: any = null;
+let publicServer: any = null;
 
 function push(arr: number[], v: number) {
   arr.push(v);
@@ -283,7 +288,9 @@ function fastTick() {
   push(history.down, down);
   push(history.up, up);
   push(history.lat, lastLatency);
-  server?.publish("stats", `[${Date.now()},${down},${up},${lastLatency.toFixed(1)},${icmpLoss}]`);
+  const fast = `[${Date.now()},${down},${up},${lastLatency.toFixed(1)},${icmpLoss}]`;
+  server?.publish("stats", fast);
+  publicServer?.publish("stats", fast);
 }
 
 // ---------- slow path ----------
@@ -665,6 +672,34 @@ async function slowTick() {
     priorityHost: confValue("PRIORITY_HOST", ""),
   };
   server?.publish("stats", JSON.stringify(snapshot));
+  if (publicServer && publicServer.subscriberCount("stats") > 0)
+    publicServer.publish("stats", JSON.stringify(publicView(snapshot)));
+}
+
+// What the public view may show: the line's numbers, and each device's traffic
+// under a pseudonym. Never a MAC, LAN address, hostname, vendor or lease, and
+// never the reflector's hostname. The pseudonym is a hash of the MAC (or the IP)
+// with a salt drawn at startup, so it is stable while the process runs, cannot
+// be reversed, and does not link across restarts. Built field by field, so a
+// field added to the snapshot later stays private until it is listed here.
+const PUBLIC_SALT = crypto.randomUUID();
+const pubId = (key: string) => Bun.hash(PUBLIC_SALT + key).toString(16).slice(-4).padStart(4, "0");
+function publicView(s: any): any {
+  if (!s) return {};
+  const devices = (s.devices ?? []).map((d: any) => ({
+    ip: pubId(d.mac || d.ip),
+    name: d.isGateway ? "ISP router" : d.os ? `${d.os} device` : "device",
+    named: false, via: "", isGateway: !!d.isGateway, present: d.present,
+    downBps: d.downBps, upBps: d.upBps, downBytes: d.downBytes, upBytes: d.upBytes,
+    sparkD: d.sparkD, sparkU: d.sparkU,
+  }));
+  return {
+    type: s.type, ts: s.ts, upload: s.upload, download: s.download, devices,
+    system: s.system, fastMs: s.fastMs, wire: s.wire, conntrack: s.conntrack,
+    probe: { ...s.probe, target: s.probe.mode === "udp" ? "reflector UDP" : s.probe.target },
+    icmpLoss: s.icmpLoss, fairness: s.fairness, profile: s.profile, priorityHost: "",
+    readOnly: true,
+  };
 }
 
 // Switch between the two shaper profiles from the dashboard. Anyone on the LAN
@@ -725,6 +760,34 @@ server = Bun.serve({
   },
 });
 
+// The public listener: same page, read-only data, no profile switching. It
+// accepts only GET and WebSocket upgrades; anything else is refused before any
+// handler that could change state is reachable.
+publicServer = PUBLIC_PORT ? Bun.serve({
+  port: PUBLIC_PORT,
+  hostname: "127.0.0.1",
+  development: false,
+  fetch(req, srv) {
+    if (req.method !== "GET" && req.method !== "HEAD") return new Response("read-only", { status: 405 });
+    const url = new URL(req.url);
+    if (url.pathname === "/ws") {
+      return srv.upgrade(req) ? undefined : new Response("upgrade failed", { status: 400 });
+    }
+    if (url.pathname === "/api/stats") return Response.json(snapshot ? { ...publicView(snapshot), history } : {});
+    if (url.pathname !== "/") return new Response("not found", { status: 404 });
+    return new Response(HTML, { headers: { "content-type": "text/html; charset=utf-8" } });
+  },
+  websocket: {
+    perMessageDeflate: false,
+    open(ws: any) {
+      ws.subscribe("stats");
+      if (snapshot) ws.send(JSON.stringify({ ...publicView(snapshot), history }));
+    },
+    close(ws: any) { ws.unsubscribe("stats"); },
+    message() {},
+  },
+}) : null;
+
 // A monitor that dies is worse than one reporting a stale number, so a stray
 // error anywhere must not take the process down. systemd restarts it if it does,
 // but a restart loses the history buffer and drops every connected browser.
@@ -739,4 +802,5 @@ setInterval(fastTick, FAST_MS);
 setInterval(() => { slowTick().catch((e) => console.error("slowTick:", e)); }, 1000);
 slowTick().catch((e) => console.error("slowTick:", e));
 
-console.log(`netmon on http://0.0.0.0:3000  (ws /ws, fast ${FAST_MS}ms, slow 1000ms)`);
+console.log(`netmon on http://0.0.0.0:${server.port}  (ws /ws, fast ${FAST_MS}ms, slow 1000ms)`
+  + (publicServer ? `; public read-only view on 127.0.0.1:${publicServer.port}` : ""));

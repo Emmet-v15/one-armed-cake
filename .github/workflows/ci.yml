@@ -40,3 +40,5 @@ jobs:
 
       - name: Dashboard bundles
         run: bun build dashboard/server.ts --target=bun --outdir="$RUNNER_TEMP/bun-out"
+      - name: Relay bundles
+        run: bun build relay/relay.ts --target=bun --outdir="$RUNNER_TEMP/bun-relay"

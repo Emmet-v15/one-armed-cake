@@ -63,5 +63,6 @@ Bun's development error page is disabled, so errors never show source code or st
 | `NETMON_PORT` | `80` | HTTP listen port |
 | `NETMON_ROUTER_IP` | address of `WAN_IF` | the box's own address, excluded from the device list |
 | `NETMON_WAN_IF` | `WAN_IF` from `/etc/router-shaper.conf` | interface for the wire counters |
+| `NETMON_PUBLIC_PORT` | *(unset: off)* | port for the read-only, anonymized listener on 127.0.0.1; see [public view](public.md) |
 
 Set these in a systemd drop-in (`/etc/systemd/system/netmon.service.d/*.conf`) so the unit file stays stock.
