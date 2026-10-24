@@ -4,7 +4,7 @@ A single Bun process (`dashboard/server.ts`) serving one page (`dashboard/index.
 
 ## What it shows
 
-- **Header:** connection state, uptime, load, CPU temperature (where the hardware reports one), memory, the **Gaming / Max throughput** switch, and badges (fairness mode, ack-filter, ICMP discard rate, interface errors).
+- **Header:** connection state, uptime, load, CPU temperature (where the hardware reports one), memory, the **Gaming / Max throughput** switch, and badges (fair split, ack-filter, ICMP discard rate, interface errors).
 - **Hero tiles:** latency (current, jitter, p95; coloured against a 50 ms budget), download and upload rate with peak and cap.
 - **Stat strip:** CAKE queue delay per direction, CAKE drop rate, probe loss, wire rate on `WAN_IF` (in plus out, since every byte crosses twice), active devices, tracked connections.
 - **Latency and throughput chart:** 30 s at 20 Hz on a shared time axis, latency on the left, Mbit/s on the right, with dashed shaper caps, a 50 ms line, and red ticks for lost probes.
@@ -19,7 +19,7 @@ A single Bun process (`dashboard/server.ts`) serving one page (`dashboard/index.
 | `udp` | `NETMON_ECHO_HOST:5201` (echo/echo-server.py) | 10/s | default when a reflector is configured |
 | `tcp` | `1.1.1.1:443` handshake | 2.5/s | fallback after 5 s without echo replies, or no reflector set |
 
-The probe is marked EF (nft output rule), so it measures what a marked game packet gets. The UDP mode reports loss as loss. The TCP fallback cannot: a lost SYN is retransmitted after the kernel's 1 s timeout, so a single loss shows up as a ~1020 ms sample.
+The probe is marked AF41 (nft output rule), so it measures what a game packet gets in the Video tin. The UDP mode reports loss as loss. The TCP fallback cannot: a lost SYN is retransmitted after the kernel's 1 s timeout, so a single loss shows up as a ~1020 ms sample.
 
 ICMP ping is still run, but only to report how much ICMP the upstream discards. Some ISPs police ICMP heavily, so ping loss is not evidence of a line fault.
 
@@ -43,7 +43,7 @@ The OS is guessed from the DHCP vendor-class and parameter-request fingerprint. 
 | `GET` | `/ws` | WebSocket. The first message is a full snapshot with history. After that come 20 Hz tick arrays `[ts, downBps, upBps, latencyMs, icmpLossPct]` (latency `-1` = probe lost) and 1 Hz full snapshots without history. |
 | `POST` | `/api/profile` | body `{"profile":"gaming"}` or `{"profile":"max"}`. Returns `{"ok":true,...}`, `400` for a bad value, `409` if a switch is already running. |
 
-Selected snapshot fields: `download` / `upload` (CAKE stats per direction, including per-tin detail), `devices[]`, `probe {mode, target, intervalMs, lossPct}`, `profile`, `fairness`, `system`, `wire`, `conntrack`.
+Selected snapshot fields: `download` / `upload` (CAKE stats per direction, including per-tin detail), `devices[]`, `probe {mode, target, intervalMs, lossPct}`, `profile`, `system`, `wire`, `conntrack`.
 
 ## Security
 

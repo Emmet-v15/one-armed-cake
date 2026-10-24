@@ -31,7 +31,7 @@ The ISP router on most home connections cannot run modern queue management, so a
 
 - **One-armed CAKE shaping.** Both directions are shaped on egress after NAT, so per-host fairness works in both directions. This is the non-obvious part; see [architecture](docs/architecture.md).
 - **Two profiles, switchable live.** `gaming` caps download below line rate so the queue stays in CAKE. `max` leaves download unshaped for full speed. Switching changes the rate in place, with no dropped connections.
-- **Game-packet priority.** Small UDP packets (game inputs, voice chat) go to CAKE's Voice tin. This fixes a flow-start weakness of fair queueing on slow uplinks.
+- **Game priority.** Every UDP flow except web, Discord and VPN traffic, plus Minecraft Java, goes to a priority tin. That covers Valorant, CS2, Overwatch, Marvel Rivals, MLBB, Factorio and Minecraft without port lists, and fixes a flow-start weakness of fair queueing on slow uplinks. (The paper measured an earlier size-based version.)
 - **Live dashboard.** Throughput and latency at 20 Hz, a latency histogram, per-device rates with names (DHCP, NetBIOS, OUI vendor, DHCP OS fingerprint), and CAKE tin statistics. It has a profile switch and works on phones.
 - **Honest latency measurement.** A game-style UDP echo to a reflector you control, not ICMP (often policed) or TCP handshakes (which turn one lost packet into a 1 s spike).
 - **Reproducible experiments.** An interleaved-trial driver, a packet-capture analyser that localizes delay to a specific queue, raw data, and the scripts that produce every table and figure.

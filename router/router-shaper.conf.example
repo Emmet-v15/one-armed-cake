@@ -42,21 +42,11 @@ ACK=yes
 WAN_IF=eth0
 LAN_SUBNET=192.168.1.0/24
 
-# ------------------------------------------------------------ fairness ------
-#   fair      Equal share per host, then fair among each host's flows.
-#   priority  PRIORITY_HOST stays Best Effort; all other traffic is marked CS1
-#             into CAKE's Bulk tin. Measured strictly worse, including for the
-#             favoured host (Bulk's long AQM target inflates the shared queue).
-#             Kept only for comparison.
-FAIRNESS=fair
-PRIORITY_HOST=192.168.1.100
-
-# ---------------------------------------------------------- game priority ----
-# Mark small UDP packets EF so CAKE serves them from the Voice tin:
-#   upload:   UDP <= 300 bytes
-#   download: UDP <= 1000 bytes, excluding source port 443 (QUIC)
-# Fair queueing alone does not protect a game flow while many bulk flows are
-# starting at once (each is "new" too). Paper, Table 1: 16 simultaneous uploads,
-# worst probe 97-132 ms with loss unmarked; 22-40 ms and zero loss marked.
-# CAKE caps Voice at 25% of the link, so a false match only loses priority.
-GAME_PRIORITY=yes
+# ------------------------------------------------------------- games --------
+# Games go in CAKE's Video tin, served ahead of everything else up to 50% of the
+# link. A game is every UDP flow except the ports below, plus Minecraft Java's
+# TCP. That covers Valorant, CS2, Overwatch, Marvel Rivals, MLBB, Factorio and
+# Minecraft whatever ports they use. Only set these to change the defaults;
+# ports on either end of the flow, as an nftables list, empty turns a rule off.
+#NOT_GAME_UDP="443, 9993, 19294-19344, 41641, 51820"   # QUIC, ZeroTier, Discord, Tailscale, WireGuard
+#GAME_TCP="25565"                                       # Minecraft Java

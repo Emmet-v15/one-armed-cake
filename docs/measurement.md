@@ -16,7 +16,7 @@ python tools/exp.py download --reps 3      # 6 conditions: download cap sweep, 4
 python tools/analyze.py                    # tables -> paper/generated, figures -> paper/figures
 ```
 
-The driver switches marking and caps on the router between conditions (marking off = `nft flush chain ip one_armed_cake dscp_mark`, marking on = `router-shaper fairness fair`, caps via `tc qdisc change`), and restores the configured profile when it finishes.
+The driver switches marking and caps on the router between conditions (marking off = `nft flush chain ip one_armed_cake dscp_mark`, marking on = `router-shaper mark`, caps via `tc qdisc change`), and restores the configured profile when it finishes.
 
 ## Trial design
 

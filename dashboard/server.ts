@@ -25,8 +25,8 @@ const PROBE_MS = 400;    // 2.5 handshakes/sec — modest, and it is the real nu
 // A TCP handshake turns one lost packet into a ~1020 ms sample (the kernel's 1 s
 // SYN retransmit), and handshakes to 1.1.1.1 scatter 16-40 ms even when idle;
 // the UDP echo measured 16.1 ms median / 16.9 p95 idle and reports loss as loss.
-// Firewall it so only your own public IP can reach it. EF is set by an nft output
-// rule on udp dport 5201, so it measures the Voice tin like a marked game packet.
+// Firewall it so only your own public IP can reach it. AF41 is set by an nft output
+// rule on udp dport 5201, so it measures the Video tin, where games go.
 // Falls back to the TCP probe if the echo stops answering, or if none is set.
 const ECHO_HOST = process.env.NETMON_ECHO_HOST ?? "";   // re-resolved every 60 s
 const ECHO_PORT = Number(process.env.NETMON_ECHO_PORT ?? 5201);
@@ -38,10 +38,7 @@ const CONF = "/etc/router-shaper.conf";
 // only way in is the tunnel; 0 disables it.
 const PUBLIC_PORT = Number(process.env.NETMON_PUBLIC_PORT ?? 0);
 
-// Read straight from the shaper config rather than hardcoding. The dashboard used
-// to hardcode 192.168.1.128 as "priority", so it kept labelling that host
-// prioritised long after we switched to a fair split — reporting a policy that
-// was not in effect.
+// Read straight from the shaper config rather than hardcoding.
 function confValue(key: string, fallback: string): string {
   try {
     const m = readFileSync(CONF, "utf8").match(new RegExp(`^${key}=(\\S+)`, "m"));
@@ -60,13 +57,6 @@ function inLan(ip: string): boolean {
   const [net, bits] = LAN_SUBNET.split("/");
   const size = 2 ** (32 - Number(bits ?? 32));
   return Math.floor(ipNum(ip) / size) === Math.floor(ipNum(net) / size);
-}
-
-function currentFairness(): string {
-  try {
-    const m = readFileSync(CONF, "utf8").match(/^FAIRNESS=(\w+)/m);
-    return m && ["fair", "priority"].includes(m[1]) ? m[1] : "fair";
-  } catch { return "fair"; }
 }
 
 const FAST_MS = 50;      // 20 samples/sec
@@ -127,15 +117,14 @@ function push(arr: number[], v: number) {
   if (arr.length > HISTORY) arr.shift();
 }
 
-// ---------- latency: TCP handshake in the Voice tin, not ICMP ----------
+// ---------- latency: TCP handshake in the game tin, not ICMP ----------
 // Measured 2026-09-08: to 1.1.1.1, under load, ICMP echo lost 38% while TCP
 // handshakes to the same address succeeded 40/40. The upstream polices ICMP, so
 // a ping-based graph reports timeouts that real traffic never experiences.
 //
-// The probe is also DSCP EF-marked, by an nft rule in `table ip one_armed_cake` chain
-// output matching 1.1.1.1:443. That puts it in CAKE's Voice tin, so the graph
-// reports the latency a properly marked realtime app (game, VoIP) actually gets
-// rather than what unmarked bulk traffic sees. Keep the port at 443 or the nft
+// The probe is also DSCP AF41-marked, by an nft rule in `table ip one_armed_cake` chain
+// output matching 1.1.1.1:443. That puts it in CAKE's Video tin with the games, so
+// the graph reports the latency a game actually gets rather than what bulk sees. Keep the port at 443 or the nft
 // rule stops matching and the number silently becomes a Best Effort measurement.
 // Every 400ms forever, so a socket leaked per probe exhausts the fd limit and
 // kills the server within hours. The timeout path is the dangerous one: it used
@@ -667,9 +656,7 @@ async function slowTick() {
       samples: probeWin.length,
     },
     icmpLoss,
-    fairness: currentFairness(),
     profile: confValue("PROFILE", "gaming") === "max" ? "max" : "gaming",
-    priorityHost: confValue("PRIORITY_HOST", ""),
   };
   server?.publish("stats", JSON.stringify(snapshot));
   if (publicServer && publicServer.subscriberCount("stats") > 0)
@@ -697,7 +684,7 @@ function publicView(s: any): any {
     type: s.type, ts: s.ts, upload: s.upload, download: s.download, devices,
     system: s.system, fastMs: s.fastMs, wire: s.wire, conntrack: s.conntrack,
     probe: { ...s.probe, target: s.probe.mode === "udp" ? "reflector UDP" : s.probe.target },
-    icmpLoss: s.icmpLoss, fairness: s.fairness, profile: s.profile, priorityHost: "",
+    icmpLoss: s.icmpLoss, profile: s.profile,
     readOnly: true,
   };
 }

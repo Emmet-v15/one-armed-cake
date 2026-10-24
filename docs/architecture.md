@@ -49,14 +49,19 @@ In `max`, CAKE still runs on download (flow isolation and statistics) but is nev
 
 Fair queueing normally gives a sparse flow, such as a game's small packets, near-zero queueing delay, because new and sparse flows are served first. That breaks down when **many bulk flows start at the same time**: each one is also "new", and on a slow uplink each quantum takes milliseconds to send. With 16 uploads starting at 1.8 Mbit/s, a game-style probe saw up to 132 ms and 13% loss in the first 1.5 s, all inside CAKE (paper, Tables 1–2).
 
-`GAME_PRIORITY=yes` adds two rules to the `dscp_mark` chain (a forward hook at mangle priority), where real hosts are visible in both directions:
+So game traffic gets its own tin. Three rules in the `dscp_mark` chain (a forward hook at mangle priority, where real hosts are visible in both directions) mark it AF41:
 
 ```
-ip saddr $LAN meta l4proto udp ip length <= 300                    ip dscp set ef   # upload
-ip daddr $LAN udp sport != 443 ip length <= 1000                    ip dscp set ef   # download
+meta l4proto udp  udp sport != { $NOT_GAME_UDP }  udp dport != { $NOT_GAME_UDP }   ip dscp set af41
+tcp dport { $GAME_TCP }                                                           ip dscp set af41
+tcp sport { $GAME_TCP }                                                           ip dscp set af41
 ```
 
-EF maps to CAKE's Voice tin in `diffserv4`, which is served first up to 25% of the link. Past that threshold it loses priority rather than starving others, which bounds the damage of a false match. TCP never matches, and port 443 is excluded on download to keep QUIC data out. `wash` on the upload qdisc clears the mark before it leaves the house.
+**Every UDP flow is a game unless it is known not to be.** Valorant, CS2, Overwatch, Marvel Rivals, MLBB, Factorio and Minecraft Bedrock all play over UDP, and several use wide or undocumented port ranges, so a port list would miss some. The exceptions, `NOT_GAME_UDP`, are the UDP that carries bulk: QUIC (443, web and video), Discord (19294–19344, where one stream reached 2.8 Mbit/s), and VPN tunnels (ZeroTier 9993, Tailscale 41641, WireGuard 51820). Minecraft Java is the one TCP game, on `GAME_TCP` (25565). Whole flows match, whatever their packet size.
+
+An earlier version picked games by packet size (UDP ≤300 bytes up, ≤1000 down, into Voice); the paper's results were measured with it. It missed real games: Valorant uploads 128 packets/s with a median of 359 bytes, so it caught only 44% of them.
+
+AF41 maps to CAKE's **Video** tin in `diffserv4`, which is served ahead of Best Effort up to 50% of the link. Past that share it loses priority rather than starving others, which bounds the damage of a false match. Voice, the other priority tin, gets only 25%: at an `UL_RATE` of 1800 kbit that's 450 kbit/s, and Valorant alone uploads about 411. `wash` on the upload qdisc clears the mark before it leaves the house. `router-shaper mark` rewrites these rules from the config without touching the qdiscs.
 
 ## Firewall rules
 
@@ -65,9 +70,9 @@ EF maps to CAKE's Voice tin in `diffserv4`, which is served first up to 25% of t
 | chain / set | hook | purpose |
 |---|---|---|
 | `postrouting` | nat postrouting | masquerade LAN traffic leaving towards the ISP router |
-| `dscp_mark` | forward, mangle priority | game-packet marking and the optional priority mode |
+| `dscp_mark` | forward, mangle priority | game marking (AF41) |
 | `account` | forward, filter priority | update the `up` and `down` sets: per-host byte counters for the dashboard |
-| `output` | output, mangle priority | mark the dashboard's own probes EF |
+| `output` | output, mangle priority | mark the dashboard's own probes AF41, so they measure the game tin |
 
 Everything is created with `nft add`, which leaves an existing table, set or chain in place, and the rules are then flushed and rewritten from the config. Restarting the shaper therefore keeps the byte counters. The shaper touches no other table, so it coexists with Docker, ufw, firewalld or a host ruleset in `/etc/nftables.conf`. Two caveats:
 
@@ -76,9 +81,9 @@ Everything is created with `nft add`, which leaves an existing table, set or cha
 
 `router-shaper stop` removes only the qdiscs, so the LAN keeps routing, unshaped. `router-shaper down` also deletes the table and turns forwarding off.
 
-## Fairness modes
+## Fairness
 
-`FAIRNESS=fair` (the default) gives each host an equal share, and each host's flows share fairly among themselves. `FAIRNESS=priority` keeps `PRIORITY_HOST` in Best Effort and marks everyone else CS1 into the Bulk tin. That mode exists only for comparison. It measured worse for *every* host, including the favoured one: the Bulk tin's long AQM target (161 ms up at these rates) lets demoted traffic build a standing queue in the shared bottleneck.
+Each host gets an equal share, and each host's flows share fairly among themselves. An earlier mode that favoured one host, marking everyone else CS1 into the Bulk tin, measured worse for *every* host, including the favoured one: the Bulk tin's long AQM target (161 ms up at these rates) let demoted traffic build a standing queue in the shared bottleneck. It has been removed.
 
 ## Dashboard data paths
 

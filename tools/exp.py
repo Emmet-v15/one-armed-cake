@@ -56,8 +56,8 @@ def ssh(dest: str, cmd: str, capture: bool = True) -> str:
 def set_marking(on: bool) -> None:
     # Off = empty router-shaper's marking chain; on = let router-shaper rewrite it.
     # (The paper's data predates the move to `table ip one_armed_cake`, when the
-    # same rules lived in `table ip mangle chain forward`.)
-    ssh(ROUTER_SSH, "sudo /usr/local/sbin/router-shaper fairness fair" if on
+    # rules lived in `table ip mangle chain forward` and marked small UDP EF.)
+    ssh(ROUTER_SSH, "sudo /usr/local/sbin/router-shaper mark" if on
         else "sudo nft flush chain ip one_armed_cake dscp_mark")
 
 

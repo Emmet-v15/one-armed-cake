@@ -8,6 +8,13 @@ set -e
 export PATH=/usr/sbin:/sbin:/usr/bin:/bin
 CONF=/etc/router-shaper.conf
 . $CONF
+# What counts as a game (see mark()). Unset means these defaults; empty turns
+# the rule off. Ports on either end of the flow, as an nftables list.
+#   NOT_GAME_UDP  QUIC/HTTPS 443, ZeroTier 9993, Discord 19294-19344,
+#                 Tailscale 41641, WireGuard 51820
+#   GAME_TCP      Minecraft Java 25565
+NOT_GAME_UDP=${NOT_GAME_UDP-443, 9993, 19294-19344, 41641, 51820}
+GAME_TCP=${GAME_TCP-25565}
 TC=/usr/sbin/tc
 IP=/usr/sbin/ip
 NFT=/usr/sbin/nft
@@ -78,16 +85,11 @@ add chain ip $TABLE account { type filter hook forward priority filter; policy a
 add chain ip $TABLE output  { type filter hook output priority mangle; policy accept; }
 flush chain ip $TABLE postrouting
 flush chain ip $TABLE account
-flush chain ip $TABLE output
 add rule ip $TABLE postrouting oifname "$WAN_IF" ip saddr $LAN_SUBNET ip daddr != $LAN_SUBNET masquerade
 add rule ip $TABLE account ip saddr $LAN_SUBNET update @up   { ip saddr }
 add rule ip $TABLE account ip daddr $LAN_SUBNET update @down { ip daddr }
-# The dashboard's own latency probes go in CAKE's Voice tin, so it reports the
-# latency a properly marked realtime app (game, VoIP) gets, not what bulk sees.
-add rule ip $TABLE output ip daddr 1.1.1.1 tcp dport 443 counter ip dscp set ef
-add rule ip $TABLE output udp dport 5201 counter ip dscp set ef
 EOF
-    apply_fairness
+    mark
 }
 
 # Remove routing entirely: after this the box no longer forwards for the LAN.
@@ -96,27 +98,41 @@ net_down() {
     echo 0 > /proc/sys/net/ipv4/ip_forward
 }
 
-# The priority/fair choice lives in nftables, not in tc: the DSCP mark has to be
-# applied in FORWARD where the real LAN host is visible in both directions.
-apply_fairness() {
+# Game traffic goes to CAKE's Video tin; everything else stays Best Effort.
+# Fair queueing alone protects a sparse game flow only while the bulk flows are
+# established: when many uploads start at once, each is also "new", and a game
+# packet takes turns with all of them. Measured 2026-09-24, 16 uploads starting
+# together, 50 Hz UDP probe: 92 ms spikes and 19 lost packets inside CAKE's
+# upload queue; marked into a priority tin, 24 ms max and 0 lost.
+#
+# "Game" is every UDP flow except known non-game UDP, plus Minecraft Java's TCP.
+# Earlier rules picked games by packet size and port list, and both missed real
+# games: Valorant's upload is p50 359 B (56% over the old 300 B limit), and
+# Overwatch and Marvel Rivals use wide or undocumented port ranges. Valorant,
+# CS2, Overwatch, Marvel Rivals, MLBB, Factorio and Minecraft Bedrock all use
+# UDP, so they match whatever ports they pick. The exceptions keep bulk UDP out:
+# QUIC (web, video), Discord (a stream reached 2.8 Mbps down), VPN tunnels.
+#
+# Video rather than Voice: CAKE serves a tin first only up to its share of the
+# link, 50% for Video and 25% for Voice. Valorant alone uploads ~411 kbps, which
+# nearly fills Voice at UL_RATE=1800kbit (450k) but sits well inside Video (900k).
+# Past its share a tin loses priority rather than starving others, so a false
+# match can only cost its own priority. The mark is set in FORWARD, where the
+# real LAN host is visible in both directions.
+mark() {
     $NFT flush chain ip $TABLE dscp_mark
-    # Game-like packets go to CAKE's Voice tin. Fair queueing alone protects a
-    # sparse flow only while the bulk flows are established: when many uploads
-    # start at once, every one of them is also "new", and a game packet takes
-    # turns with all of them. Measured 2026-09-24, 16 uploads starting together,
-    # 50 Hz UDP probe: 92 ms spikes and 19 lost packets, all inside CAKE's upload
-    # queue (the ISP router and line stayed flat at 15.6 ms). Marked EF: 24 ms max, 0 lost.
-    # Small UDP only, so TCP bulk and QUIC data never match; Voice is capped at
-    # 25% of the link by CAKE, so a false match can only lose its own priority.
-    if [ "$GAME_PRIORITY" = "yes" ]; then
-        $NFT add rule ip $TABLE dscp_mark ip saddr "$LAN_SUBNET" meta l4proto udp ip length \<= 300             counter ip dscp set ef comment '"game up"'
-        $NFT add rule ip $TABLE dscp_mark ip daddr "$LAN_SUBNET" udp sport != 443 ip length \<= 1000             counter ip dscp set ef comment '"game down"'
+    local skip=""
+    [ -n "$NOT_GAME_UDP" ] && skip="udp sport != { $NOT_GAME_UDP } udp dport != { $NOT_GAME_UDP }"
+    $NFT add rule ip $TABLE dscp_mark meta l4proto udp $skip counter ip dscp set af41 comment '"game udp"'
+    if [ -n "$GAME_TCP" ]; then
+        $NFT add rule ip $TABLE dscp_mark tcp dport "{ $GAME_TCP }" counter ip dscp set af41 comment '"game tcp up"'
+        $NFT add rule ip $TABLE dscp_mark tcp sport "{ $GAME_TCP }" counter ip dscp set af41 comment '"game tcp down"'
     fi
-    if [ "$FAIRNESS" = "priority" ]; then
-        $NFT add rule ip $TABLE dscp_mark ip saddr "$PRIORITY_HOST" counter return
-        $NFT add rule ip $TABLE dscp_mark ip daddr "$PRIORITY_HOST" counter return
-        $NFT add rule ip $TABLE dscp_mark counter ip dscp set cs1
-    fi
+    # The dashboard's own latency probes go in the game tin too, so it reports
+    # the latency a game gets, not what bulk sees.
+    $NFT flush chain ip $TABLE output
+    $NFT add rule ip $TABLE output ip daddr 1.1.1.1 tcp dport 443 counter ip dscp set af41
+    $NFT add rule ip $TABLE output udp dport 5201 counter ip dscp set af41
 }
 
 stop() {
@@ -174,16 +190,8 @@ case "$1" in
     stop)  stop ;;
     down)  stop; net_down ;;
     restart) stop; start ;;
-    fairness)
-        case "$2" in
-            fair|priority) ;;
-            *) echo "usage: $0 fairness {fair|priority}"; exit 1 ;;
-        esac
-        sed -i "s/^FAIRNESS=.*/FAIRNESS=$2/" "$CONF"
-        FAIRNESS=$2
-        apply_fairness
-        echo "fairness: $FAIRNESS"
-        ;;
+    # Rewrite the game-marking rules from the config, without touching the qdiscs.
+    mark) mark; echo "marking: game udp, not ports $NOT_GAME_UDP; game tcp ${GAME_TCP:-none}" ;;
     profile)
         want=$2; [ "$want" = "shaped" ] && want=gaming   # old name
         case "$want" in
@@ -212,13 +220,12 @@ case "$1" in
         echo "profile: $PROFILE"
         ;;
     show)
-        echo "profile=$PROFILE dl=$DL_RATE ul=$UL_RATE rtt=$RTT ack=$ACK fairness=$FAIRNESS"
+        echo "profile=$PROFILE dl=$DL_RATE ul=$UL_RATE rtt=$RTT ack=$ACK"
         ;;
     status)
         echo "profile: $PROFILE"
         echo "rates: dl $DL_RATE, ul $UL_RATE, rtt $RTT, ack-filter $ACK"
-        echo "fairness: $FAIRNESS"
         echo; echo "== ifb-up (UPLOAD) =="; $TC -s qdisc show dev ifb-up
         echo; echo "== ifb-down (DOWNLOAD) =="; $TC -s qdisc show dev ifb-down ;;
-    *) echo "usage: $0 {start|stop|down|restart|status|show|profile <gaming|max>|fairness <fair|priority>}"; exit 1 ;;
+    *) echo "usage: $0 {start|stop|down|restart|status|show|mark|profile <gaming|max>}"; exit 1 ;;
 esac

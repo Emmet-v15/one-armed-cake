@@ -16,9 +16,8 @@
 | `ACK` | `yes` | Enable `ack-filter` on upload. |
 | `WAN_IF` | `eth0` | The single interface. The installer sets it from the default route. The dashboard reads it from here too. |
 | `LAN_SUBNET` | `192.168.1.0/24` | Used by the tc filters and the classifier. |
-| `FAIRNESS` | `fair` | `fair` or `priority`. Written by `router-shaper fairness`. |
-| `PRIORITY_HOST` | `192.168.1.100` | Only used with `FAIRNESS=priority`. |
-| `GAME_PRIORITY` | `yes` | Mark small UDP EF (Voice tin). |
+| `NOT_GAME_UDP` | `443, 9993, 19294-19344, 41641, 51820` | Optional. UDP ports (either end) that are *not* games: QUIC, ZeroTier, Discord, Tailscale, WireGuard. Every other UDP flow is marked as a game (Video tin). Empty marks all UDP. |
+| `GAME_TCP` | `25565` | Optional. TCP ports (either end) that are games: Minecraft Java. Empty turns it off. |
 
 ## Choosing rates
 
@@ -48,5 +47,5 @@ router-shaper down                       stop, then also remove NAT/forwarding (
 router-shaper status                     per-direction CAKE statistics
 router-shaper show                       one-line summary of the config
 router-shaper profile gaming | max       switch live (tc qdisc change)
-router-shaper fairness fair | priority   rewrite the forward-chain rules
+router-shaper mark                       rewrite the game-marking rules from the config
 ```

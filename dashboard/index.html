@@ -48,7 +48,6 @@
   .badge.on   { border-color:rgba(210,153,34,.5);  background:rgba(210,153,34,.12);  color:var(--up); }
   .badge.ok   { border-color:rgba(63,185,80,.45);  background:rgba(63,185,80,.12);   color:var(--good); }
   .badge.bad  { border-color:rgba(248,81,73,.45);  background:rgba(248,81,73,.12);   color:var(--bad); }
-  .badge.prio { border-color:rgba(163,113,247,.45);background:rgba(163,113,247,.12); color:var(--prio); }
 
   /* ---- hero numbers ---- */
   .hero { display:grid; gap:var(--gap); grid-template-columns:repeat(3,minmax(0,1fr)); }
@@ -237,7 +236,7 @@
       <thead><tr><th></th><th style="color:var(--down)">↓ down</th><th style="color:var(--up)">↑ up</th></tr></thead>
       <tbody id="aqm"></tbody>
     </table>
-    <div class="foot">Queue delay is the backlog divided by the drain rate, which is the extra lag a new packet sees. Only Best Effort normally carries traffic; the other tins fill only when an app marks DSCP.</div>
+    <div class="foot">Queue delay is the backlog divided by the drain rate, which is the extra lag a new packet sees. Games (every UDP flow except web, Discord and VPNs, plus Minecraft Java) go in Video; everything else is Best Effort.</div>
   </div>
 </div>
 </div>
@@ -513,10 +512,8 @@ document.getElementById("mode").addEventListener("click", async (e)=>{
 
 // ---- badges + header ----
 function renderHeader(s){
-  const fair = s.fairness !== "priority", b = [];
+  const b = [`<span class="badge">fair split per host</span>`];
   renderMode(s);
-  b.push(fair ? `<span class="badge">fair split per host</span>`
-              : `<span class="badge prio">priority ${esc(s.priorityHost||"?")}</span>`);
   if (s.download?.ackFilter) b.push(`<span class="badge">ack-filter</span>`);
   if ((s.icmpLoss||0)>5) b.push(`<span class="badge">ICMP discarded upstream ${s.icmpLoss}%</span>`);
   const we = (s.wire?.rxErrors||0)+(s.wire?.txErrors||0);
@@ -552,15 +549,13 @@ function spark2(d, u, max, live){
 }
 function devRow(d, s, ctx){
   const live = d.upBps+d.downBps>2000;
-  const prio = s.fairness==="priority" && s.priorityHost && d.ip===s.priorityHost;
   const [cls,label] = VIA[d.via] || ["none","unnamed"];
   const name = d.isGateway ? "gateway" : d.name;
   const hw = d.vendor && d.vendor !== name ? d.vendor : d.isGateway ? d.vendor
     : d.randomMac ? "private MAC" : d.via==="vendor" ? "no hostname" : "";
   const lease = d.noLease ? "no lease" : d.expiry ? "lease "+ago(Math.round(d.expiry-ctx.now)) : "static";
   const tags = s.readOnly ? "" : `<span class="tag ${cls}">${label}</span>`
-    + (d.dupMac ? `<span class="tag none" title="Same MAC on another address: one device that changed IP">dup</span>` : "")
-    + (prio ? `<span class="tag prio">priority</span>` : "");
+    + (d.dupMac ? `<span class="tag none" title="Same MAC on another address: one device that changed IP">dup</span>` : "");
   const pkD = Math.max(0, ...(d.sparkD||[])), pkU = Math.max(0, ...(d.sparkU||[]));
   const sub = [d.os?`<span style="color:var(--lat)">${esc(d.os)}</span>`:"", esc(hw), esc(d.ip)].filter(Boolean).join(" · ");
   const tip = s.readOnly ? `Transferred: ↓ ${bytes(d.downBytes)} · ↑ ${bytes(d.upBytes)}` : `${d.ip} ·${d.mac||"no MAC"} · ${lease}\nTransferred: ↓ ${bytes(d.downBytes)} · ↑ ${bytes(d.upBytes)}`;
