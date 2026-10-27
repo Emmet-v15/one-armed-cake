@@ -452,7 +452,11 @@ async function nameResolverLoop() {
       for (const [, mac, ip, host] of rows) {
         const key = mac || ip;
         const c = nameCache[key];
-        if (c && Date.now() - c.t < 24 * 3600 * 1000) continue;
+        // A lookup that found nothing is retried soon: the client may send its
+        // name on its next DHCP exchange, and an empty answer kept for a day
+        // left a device that had named itself showing as a bare IP.
+        const ttl = c?.name || c?.os ? 24 * 3600 * 1000 : 10 * 60 * 1000;
+        if (c && Date.now() - c.t < ttl) continue;
         const vendor = ouiLookup(mac);
         const os = prettyOs(fp[mac?.toLowerCase()]?.os);
         let name = "", via = "";
